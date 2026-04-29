@@ -12,7 +12,6 @@ class TimekeepApp:
         self.root.title("Phần mềm xử lý dữ liệu chấm công")
         self.root.geometry("1100x650")
         
-        # Căn giữa cửa sổ chính
         self.root.update_idletasks()
         width = 1100
         height = 680
@@ -26,7 +25,6 @@ class TimekeepApp:
         self.df2_clean = None
         self.df_result = None
 
-        # --- Tùy chỉnh giao diện Bảng (Treeview Style) ---
         style = ttk.Style()
         style.theme_use("clam")
         style.configure("Treeview", 
@@ -37,7 +35,6 @@ class TimekeepApp:
         style.map('Treeview', background=[('selected', '#347083')])
         style.configure("Treeview.Heading", font=('Arial', 10, 'bold'), background="#d3d3d3")
 
-        # --- Giao diện (UI) CHỌN FILE ---
         frame_top = tk.Frame(self.root, pady=5)
         frame_top.pack(fill=tk.X)
 
@@ -54,7 +51,6 @@ class TimekeepApp:
         tk.Button(frame_top, text="Bắt đầu Xử lý", command=self.process_data, bg="lightblue", font=("Arial", 10, "bold")).grid(row=0, column=3, rowspan=2, padx=20, ipadx=10, ipady=10)
         tk.Label(frame_top, text="(MẸO: Nhấp đúp chuột vào ô cột Timetable\nđể sửa tên Ca và tự động tính lại dữ liệu)", fg="red", font=("Arial", 8, "italic")).grid(row=0, column=4, rowspan=2, padx=10)
 
-        # --- Giao diện (UI) LỌC NGÀY THÁNG & MSNV ---
         frame_filter = tk.Frame(self.root, pady=5)
         frame_filter.pack(fill=tk.X, padx=10)
         
@@ -69,7 +65,6 @@ class TimekeepApp:
         btn_filter = tk.Button(frame_filter, text="Lọc Dữ Liệu", command=self.apply_filter, bg="#ffcc00", font=("Arial", 9, "bold"))
         btn_filter.pack(side=tk.LEFT, padx=15)
 
-        # --- Giao diện (UI) BẢNG DỮ LIỆU ---
         frame_middle = tk.Frame(self.root)
         frame_middle.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
@@ -86,10 +81,8 @@ class TimekeepApp:
         self.tree.tag_configure('oddrow', background="white")
         self.tree.tag_configure('evenrow', background="#f0f0f0")
 
-        # Ràng buộc sự kiện Double-Click để SỬA TRỰC TIẾP
         self.tree.bind('<Double-1>', self.on_double_click)
 
-        # --- Giao diện (UI) XUẤT FILE ---
         frame_bottom = tk.Frame(self.root, pady=10)
         frame_bottom.pack(fill=tk.X)
         tk.Button(frame_bottom, text="Xuất dữ liệu ra Excel", command=self.export_excel, bg="lightgreen", font=("Arial", 12, "bold")).pack(pady=5)
@@ -245,11 +238,9 @@ class TimekeepApp:
             self.df_result['Nghỉ phép'] = ''
             self.df_result['Tăng ca'] = ''
 
-            # Chạy logic xử lý cho từng dòng
             for idx in self.df_result.index:
                 self.process_single_row(idx, force_recalc=False)
 
-            # --- KHỞI TẠO COMBOBOX LỌC ---
             unique_dates = sorted([str(d) for d in self.df_result['Date'].unique() if str(d).strip() != '' and str(d) != 'nan'])
             self.cb_date['values'] = ["Tất cả"] + unique_dates
             self.cb_date.current(1) if len(unique_dates) > 0 else self.cb_date.current(0)
@@ -273,7 +264,7 @@ class TimekeepApp:
         timetable = str(self.df_result.at[idx, 'Timetable']).strip()
         tt_upper = timetable.upper()
         
-        # 1. ÁP DỤNG ON/OFF DUTY CHUẨN MỚI NHẤT
+        # 1. ÁP DỤNG ON/OFF DUTY
         if "HC" in tt_upper:
             on_duty, off_duty = "07:30", "17:00"
         elif "CA 1" in tt_upper:
@@ -289,7 +280,7 @@ class TimekeepApp:
         self.df_result.at[idx, 'On duty'] = on_duty
         self.df_result.at[idx, 'Off duty'] = off_duty
 
-        # 2. TỰ ĐỘNG SẮP XẾP LẠI (ĐẢO CHIỀU) VÂN TAY SẴN CÓ DỰA VÀO ON/OFF DUTY
+        # 2. ĐẢO CHIỀU VÂN TAY (Sắp xếp theo khoảng cách On/Off Duty)
         available_times = []
         if c_in != '' and c_in != 'Bù vân tay' and str(c_in) != 'nan': available_times.append(c_in)
         if c_out != '' and c_out != 'Bù vân tay' and str(c_out) != 'nan': available_times.append(c_out)
@@ -309,13 +300,11 @@ class TimekeepApp:
                 on_dt = datetime.strptime(on_duty, fmt)
                 off_dt = datetime.strptime(off_duty, fmt)
                 
-                # Hàm tính khoảng cách thời gian thông minh (chống lỗi qua đêm)
                 def get_dist(d1, d2):
                     return min(abs((d1 - d2).total_seconds()), 
                                abs((d1 + timedelta(days=1) - d2).total_seconds()), 
                                abs((d1 - timedelta(days=1) - d2).total_seconds()))
                 
-                # Vân tay gần giờ On thì gán vào In, gần giờ Off thì gán vào Out
                 if get_dist(t_dt, on_dt) <= get_dist(t_dt, off_dt):
                     c_in = t
                 else:
@@ -326,14 +315,22 @@ class TimekeepApp:
         self.df_result.at[idx, 'Clock In'] = c_in
         self.df_result.at[idx, 'Clock Out'] = c_out
         
+        # --- QUAN TRỌNG: NẾU KHÔNG ÉP TÍNH LẠI, GIỮ NGUYÊN DỮ LIỆU ZKT ---
         if force_recalc:
             self.df_result.at[idx, 'Work Time'] = ''
+            self.df_result.at[idx, 'Late'] = ''
+            self.df_result.at[idx, 'Early'] = ''
+            self.df_result.at[idx, 'OT Time'] = ''
         else:
-            self.df_result.at[idx, 'Work Time'] = str(orig_row['Work Time']).strip()
+            wt = str(orig_row['Work Time']).strip()
+            self.df_result.at[idx, 'Work Time'] = wt if wt != 'nan' else ''
+            late_v = str(orig_row['Late']).strip() if 'Late' in orig_row else ''
+            self.df_result.at[idx, 'Late'] = late_v if late_v != 'nan' else ''
+            early_v = str(orig_row['Early']).strip() if 'Early' in orig_row else ''
+            self.df_result.at[idx, 'Early'] = early_v if early_v != 'nan' else ''
+            ot_v = str(orig_row['OT Time']).strip() if 'OT Time' in orig_row else ''
+            self.df_result.at[idx, 'OT Time'] = ot_v if ot_v != 'nan' else ''
             
-        self.df_result.at[idx, 'Late'] = ''
-        self.df_result.at[idx, 'Early'] = ''
-        self.df_result.at[idx, 'OT Time'] = ''
         self.df_result.at[idx, 'Kết Quả Công'] = ''
         self.df_result.at[idx, 'Nghỉ phép'] = ''
         self.df_result.at[idx, 'Tăng ca'] = ''
@@ -343,41 +340,47 @@ class TimekeepApp:
         except:
             date_val = None
 
-        # 3. TÌM KIẾM BÙ VÂN TAY TỪ DỮ LIỆU HR
+        # 3. TÌM KIẾM BÙ VÂN TAY DỰA THEO KHUNG GIỜ ON/OFF DUTY TƯƠNG ỨNG
         if date_val and (c_in == '' or c_out == ''):
-            is_ca3 = "CA 3" in tt_upper
             df2 = self.df2_clean
-            
             if c_in == '' and c_out == '':
-                pass # Bỏ qua, sẽ được gán PLP ở đoạn sau
-            
-            elif c_in == '' and c_out != '':
-                if is_ca3:
-                    date_in = date_val - timedelta(days=1)
-                    mask_in = (df2['MSNV_Match'] == msnv) & (df2['Thời gian quẹt thẻ'].dt.date == date_in)
-                    swipes_in = df2.loc[mask_in, 'Thời gian quẹt thẻ'].dropna().sort_values()
-                    if not swipes_in.empty: 
-                        new_in = swipes_in.iloc[-1].strftime("%H:%M")
-                        # CHỐNG TRÙNG LẶP: Nếu HR bù trùng với dữ liệu đã có thì bỏ qua
-                        if new_in != c_out: self.df_result.at[idx, 'Clock In'] = new_in
-                else:
-                    mask = (df2['MSNV_Match'] == msnv) & (df2['Thời gian quẹt thẻ'].dt.date == date_val)
-                    swipes = df2.loc[mask, 'Thời gian quẹt thẻ'].dropna().sort_values()
-                    if not swipes.empty: 
-                        new_in = swipes.iloc[0].strftime("%H:%M")
-                        if new_in != c_out: self.df_result.at[idx, 'Clock In'] = new_in
-            
-            elif c_in != '' and c_out == '':
-                mask_out = (df2['MSNV_Match'] == msnv) & (df2['Thời gian quẹt thẻ'].dt.date == date_val)
-                swipes_out = df2.loc[mask_out, 'Thời gian quẹt thẻ'].dropna().sort_values()
-                if not swipes_out.empty: 
-                    new_out = swipes_out.iloc[-1].strftime("%H:%M")
-                    if new_out != c_in: self.df_result.at[idx, 'Clock Out'] = new_out
+                pass # Chống bù nếu trống cả 2
+            else:
+                try:
+                    fmt = "%H:%M"
+                    on_dt_time = datetime.strptime(on_duty, fmt).time()
+                    off_dt_time = datetime.strptime(off_duty, fmt).time()
+                    
+                    is_ca3 = "CA 3" in tt_upper
+                    if is_ca3:
+                        target_in_dt = datetime.combine(date_val - timedelta(days=1), on_dt_time)
+                    else:
+                        target_in_dt = datetime.combine(date_val, on_dt_time)
+                        
+                    target_out_dt = datetime.combine(date_val, off_dt_time)
+                    if target_out_dt <= target_in_dt: 
+                        target_out_dt += timedelta(days=1)
+                        
+                    emp_swipes = df2.loc[df2['MSNV_Match'] == msnv, 'Thời gian quẹt thẻ'].dropna()
+                    
+                    if c_in == '' and c_out != '':
+                        valid_ins = emp_swipes[(emp_swipes >= target_in_dt - timedelta(hours=4)) & (emp_swipes <= target_in_dt + timedelta(hours=4))]
+                        if not valid_ins.empty:
+                            new_in = valid_ins.min().strftime("%H:%M")
+                            if new_in != c_out: self.df_result.at[idx, 'Clock In'] = new_in
+                            
+                    elif c_out == '' and c_in != '':
+                        valid_outs = emp_swipes[(emp_swipes >= target_out_dt - timedelta(hours=4)) & (emp_swipes <= target_out_dt + timedelta(hours=8))]
+                        if not valid_outs.empty:
+                            new_out = valid_outs.max().strftime("%H:%M")
+                            if new_out != c_in: self.df_result.at[idx, 'Clock Out'] = new_out
+                except Exception as e:
+                    pass
 
         c_in = self.df_result.at[idx, 'Clock In']
         c_out = self.df_result.at[idx, 'Clock Out']
         
-        # 4. CHỐT KẾT QUẢ "BÙ VÂN TAY" HOẶC "PLP"
+        # 4. CHỐT BÙ VÂN TAY & PLP
         if c_in == '' and c_out == '':
             self.df_result.at[idx, 'Nghỉ phép'] = "PLP"
         elif c_in == '' and c_out != '':
@@ -387,9 +390,8 @@ class TimekeepApp:
             self.df_result.at[idx, 'Clock Out'] = "Bù vân tay"
             self.df_result.at[idx, 'Work Time'] = "Bù vân tay"
 
-        w_time = str(self.df_result.at[idx, 'Work Time']).strip()
-
         # 5. TÍNH WORK TIME & LATE/EARLY
+        w_time = str(self.df_result.at[idx, 'Work Time']).strip()
         needs_recalc = force_recalc
         if w_time == '' or w_time == 'Bù vân tay':
             needs_recalc = True
@@ -425,8 +427,11 @@ class TimekeepApp:
                         self.df_result.at[idx, 'Work Time'] = "08:00"
                         ot_sec = total_sec - 8 * 3600
                         self.df_result.at[idx, 'OT Time'] = f"{ot_sec // 3600:02d}:{(ot_sec % 3600) // 60:02d}"
+                        self.df_result.at[idx, 'Late'] = ''
+                        self.df_result.at[idx, 'Early'] = ''
                     else:
                         self.df_result.at[idx, 'Work Time'] = f"{total_sec // 3600:02d}:{(total_sec % 3600) // 60:02d}"
+                        self.df_result.at[idx, 'OT Time'] = ''
                         late_val, early_val = "", ""
                         
                         if on_duty != '' and off_duty != '':
@@ -454,7 +459,7 @@ class TimekeepApp:
                     self.df_result.at[idx, 'Work Time'] = "00:00"
             except: pass
         
-        # 6. TÍNH KẾT QUẢ CÔNG VÀ NGHỈ PHÉP (VR)
+        # 6. TÍNH KẾT QUẢ CÔNG & NGHỈ PHÉP
         w_time = str(self.df_result.at[idx, 'Work Time']).strip()
         cham_cong_val = ""
         
