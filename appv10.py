@@ -143,7 +143,6 @@ class TimekeepApp:
                 else:
                     raise ve
 
-    # --- SỰ KIỆN DOUBLE CLICK SỬA TRỰC TIẾP TIMETABLE ---
     def on_double_click(self, event):
         if self.df_result is None or self.df_result.empty: return
         region = self.tree.identify_region(event.x, event.y)
@@ -161,7 +160,6 @@ class TimekeepApp:
             x, y, w, h = self.tree.bbox(item_id, column)
             current_val = self.tree.set(item_id, column)
             
-            # Sửa chuẩn tên HC
             cb = ttk.Combobox(self.tree, values=["HC 7H30-17H00", "CA 1", "CA 2", "CA 3"], state="normal")
             cb.set(current_val)
             cb.place(x=x, y=y, width=w, height=h)
@@ -171,11 +169,8 @@ class TimekeepApp:
                 new_val = cb.get()
                 cb.destroy()
                 if new_val != current_val:
-                    # Lưu Timetable mới
                     self.df_result.at[idx, 'Timetable'] = new_val
-                    # force_recalc=True: ÉP PHẦN MỀM XÓA KẾT QUẢ CŨ VÀ TÍNH LẠI MỚI
                     self.process_single_row(idx, force_recalc=True)
-                    # Cập nhật hiển thị dòng trên UI
                     self.tree.item(item_id, values=list(self.df_result.loc[idx]))
                     
             cb.bind("<Return>", save_edit)
@@ -219,7 +214,6 @@ class TimekeepApp:
             self.df_result['Nghỉ phép'] = ''
             self.df_result['Tăng ca'] = ''
 
-            # Chạy logic xử lý cho từng dòng (Mặc định không ép tính lại trừ khi Work time trống)
             for idx in self.df_result.index:
                 self.process_single_row(idx, force_recalc=False)
 
@@ -229,7 +223,6 @@ class TimekeepApp:
         except Exception as e:
             messagebox.showerror("Lỗi", f"Đã xảy ra lỗi trong quá trình xử lý:\n{str(e)}")
 
-    # --- LOGIC XỬ LÝ 1 DÒNG (DÙNG ĐỂ CHẠY HÀNG LOẠT VÀ TÍNH LẠI KHI SỬA TIMETABLE) ---
     def process_single_row(self, idx, force_recalc=False):
         orig_row = self.df1_clean.loc[idx]
         c_in = str(orig_row['Clock In']).strip()
@@ -238,7 +231,6 @@ class TimekeepApp:
         
         timetable = str(self.df_result.at[idx, 'Timetable']).strip()
         
-        # Tự động map On Duty / Off Duty nếu người dùng thay đổi Timetable
         tt_upper = timetable.upper()
         if "HC" in tt_upper:
             on_duty, off_duty = "07:30", "17:00"
@@ -258,7 +250,6 @@ class TimekeepApp:
         self.df_result.at[idx, 'Clock In'] = c_in
         self.df_result.at[idx, 'Clock Out'] = c_out
         
-        # NẾU ÉP TÍNH LẠI (Do đổi ca) -> Xóa Work Time cũ của máy chấm công
         if force_recalc:
             self.df_result.at[idx, 'Work Time'] = ''
         else:
@@ -334,7 +325,6 @@ class TimekeepApp:
                 
                 total_sec = int((tout_dt - tin_dt).total_seconds())
                 
-                # TRỪ NGHỈ TRƯA CA HC (nếu có giao cắt)
                 if "HC" in timetable.upper():
                     lunch_start = tin_dt.replace(hour=11, minute=30, second=0)
                     lunch_end = tin_dt.replace(hour=13, minute=0, second=0)
@@ -377,9 +367,10 @@ class TimekeepApp:
                     self.df_result.at[idx, 'Work Time'] = "00:00"
             except: pass
         
-        # TÍNH KẾT QUẢ CÔNG
+        # --- TÍNH KẾT QUẢ CÔNG VÀ NGHỈ PHÉP ---
         w_time = str(self.df_result.at[idx, 'Work Time']).strip()
         cham_cong_val = ""
+        
         if w_time != '' and w_time != 'Bù vân tay':
             try:
                 h_str, m_str = w_time.split(":")
@@ -396,6 +387,14 @@ class TimekeepApp:
                 elif "CA 3" in timetable.upper(): phanduoi = "C3"
                 
                 cham_cong_val = phangio + phanphut + phanduoi
+                
+                # TÍNH NGHỈ PHÉP (Nếu không đủ 8 tiếng và chưa bị gán PLP)
+                if self.df_result.at[idx, 'Nghỉ phép'] != "PLP":
+                    num_work = h + (0.5 if m >= 30 else 0)
+                    if num_work < 8:
+                        np_val = 8 - num_work
+                        # Định dạng g giúp bỏ số 0 thừa (vd: 2.0 -> 2, 2.5 -> 2.5)
+                        self.df_result.at[idx, 'Nghỉ phép'] = f"{np_val:g}VR"
             except: pass
         
         self.df_result.at[idx, 'Kết Quả Công'] = cham_cong_val
