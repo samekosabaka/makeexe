@@ -10,12 +10,12 @@ class TimekeepApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Phần mềm xử lý dữ liệu chấm công")
-        self.root.geometry("1100x600")
+        self.root.geometry("1100x650")
         
         # Căn giữa cửa sổ chính
         self.root.update_idletasks()
         width = 1100
-        height = 650
+        height = 680
         x = (self.root.winfo_screenwidth() // 2) - (width // 2)
         y = (self.root.winfo_screenheight() // 2) - (height // 2)
         self.root.geometry('{}x{}+{}+{}'.format(width, height, x, y))
@@ -37,14 +37,14 @@ class TimekeepApp:
         style.map('Treeview', background=[('selected', '#347083')])
         style.configure("Treeview.Heading", font=('Arial', 10, 'bold'), background="#d3d3d3")
 
-        # --- Giao diện (UI) ---
-        frame_top = tk.Frame(self.root, pady=10)
+        # --- Giao diện (UI) CHỌN FILE ---
+        frame_top = tk.Frame(self.root, pady=5)
         frame_top.pack(fill=tk.X)
 
-        tk.Label(frame_top, text="1. File zkt:").grid(row=0, column=0, padx=10, sticky="e")
+        tk.Label(frame_top, text="1. File zkt:").grid(row=0, column=0, padx=10, pady=5, sticky="e")
         self.lbl_file1 = tk.Label(frame_top, text="Chưa chọn file", width=40, anchor="w", bg="white", relief="sunken")
-        self.lbl_file1.grid(row=0, column=1, padx=5)
-        tk.Button(frame_top, text="Chọn File", command=self.select_file1).grid(row=0, column=2, padx=5)
+        self.lbl_file1.grid(row=0, column=1, padx=5, pady=5)
+        tk.Button(frame_top, text="Chọn File", command=self.select_file1).grid(row=0, column=2, padx=5, pady=5)
 
         tk.Label(frame_top, text="2. Dữ liệu HR:").grid(row=1, column=0, padx=10, pady=5, sticky="e")
         self.lbl_file2 = tk.Label(frame_top, text="Chưa chọn file", width=40, anchor="w", bg="white", relief="sunken")
@@ -54,6 +54,18 @@ class TimekeepApp:
         tk.Button(frame_top, text="Bắt đầu Xử lý", command=self.process_data, bg="lightblue", font=("Arial", 10, "bold")).grid(row=0, column=3, rowspan=2, padx=20, ipadx=10, ipady=10)
         tk.Label(frame_top, text="(MẸO: Nhấp đúp chuột vào ô cột Timetable\nđể sửa tên Ca và tự động tính lại dữ liệu)", fg="red", font=("Arial", 8, "italic")).grid(row=0, column=4, rowspan=2, padx=10)
 
+        # --- Giao diện (UI) LỌC NGÀY THÁNG ---
+        frame_filter = tk.Frame(self.root, pady=5)
+        frame_filter.pack(fill=tk.X, padx=10)
+        
+        tk.Label(frame_filter, text="Lọc theo Ngày:", font=("Arial", 10, "bold")).pack(side=tk.LEFT, padx=5)
+        self.cb_date = ttk.Combobox(frame_filter, state="readonly", width=15, font=("Arial", 10))
+        self.cb_date.pack(side=tk.LEFT, padx=5)
+        
+        btn_filter = tk.Button(frame_filter, text="Lọc Dữ Liệu", command=self.apply_filter, bg="#ffcc00", font=("Arial", 9, "bold"))
+        btn_filter.pack(side=tk.LEFT, padx=10)
+
+        # --- Giao diện (UI) BẢNG DỮ LIỆU ---
         frame_middle = tk.Frame(self.root)
         frame_middle.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
@@ -73,6 +85,7 @@ class TimekeepApp:
         # Ràng buộc sự kiện Double-Click để SỬA TRỰC TIẾP
         self.tree.bind('<Double-1>', self.on_double_click)
 
+        # --- Giao diện (UI) XUẤT FILE ---
         frame_bottom = tk.Frame(self.root, pady=10)
         frame_bottom.pack(fill=tk.X)
         tk.Button(frame_bottom, text="Xuất dữ liệu ra Excel", command=self.export_excel, bg="lightgreen", font=("Arial", 12, "bold")).pack(pady=5)
@@ -176,6 +189,17 @@ class TimekeepApp:
             cb.bind("<Return>", save_edit)
             cb.bind("<FocusOut>", save_edit)
 
+    def apply_filter(self):
+        if self.df_result is None or self.df_result.empty: return
+        selected_date = self.cb_date.get()
+        
+        if selected_date == "Tất cả" or selected_date == "":
+            df_to_show = self.df_result
+        else:
+            df_to_show = self.df_result[self.df_result['Date'] == selected_date]
+            
+        self.display_data(df_to_show)
+
     def process_data(self):
         if not self.file1_path or not self.file2_path:
             messagebox.showwarning("Cảnh báo", "Vui lòng chọn đủ cả 2 file!")
@@ -214,10 +238,24 @@ class TimekeepApp:
             self.df_result['Nghỉ phép'] = ''
             self.df_result['Tăng ca'] = ''
 
+            # Chạy logic xử lý cho từng dòng
             for idx in self.df_result.index:
                 self.process_single_row(idx, force_recalc=False)
 
-            self.display_data(self.df_result)
+            # --- KHỞI TẠO COMBOBOX LỌC NGÀY ---
+            unique_dates = []
+            for d in self.df_result['Date'].unique():
+                if str(d).strip() != '' and str(d) != 'nan':
+                    unique_dates.append(str(d))
+            unique_dates.sort()
+            
+            self.cb_date['values'] = ["Tất cả"] + unique_dates
+            if len(unique_dates) > 0:
+                self.cb_date.current(1) # Lọc mặc định vào ngày đầu tiên
+            else:
+                self.cb_date.current(0)
+                
+            self.apply_filter()
             messagebox.showinfo("Thành công", "Xử lý dữ liệu hoàn tất!")
 
         except Exception as e:
@@ -230,8 +268,9 @@ class TimekeepApp:
         msnv = str(orig_row['MSNV']).strip()
         
         timetable = str(self.df_result.at[idx, 'Timetable']).strip()
-        
         tt_upper = timetable.upper()
+        
+        # Map On/Off duty
         if "HC" in tt_upper:
             on_duty, off_duty = "07:30", "17:00"
         elif "CA 1" in tt_upper:
@@ -246,6 +285,14 @@ class TimekeepApp:
             
         self.df_result.at[idx, 'On duty'] = on_duty
         self.df_result.at[idx, 'Off duty'] = off_duty
+
+        # --- YÊU CẦU 2: Đảo chiều/Sắp xếp lại vân tay theo Ca mới ---
+        if c_in != '' and c_out != '' and c_in != 'Bù vân tay' and c_out != 'Bù vân tay':
+            times = sorted([c_in, c_out])
+            if "CA 3" in tt_upper:
+                c_in, c_out = times[1], times[0] # Lớn (tối) là In, Nhỏ (sáng) là Out
+            else:
+                c_in, c_out = times[0], times[1] # Nhỏ là In, Lớn là Out
 
         self.df_result.at[idx, 'Clock In'] = c_in
         self.df_result.at[idx, 'Clock Out'] = c_out
@@ -268,26 +315,34 @@ class TimekeepApp:
             date_val = None
 
         if date_val and (c_in == '' or c_out == ''):
-            is_ca3 = "CA 3" in timetable.upper()
+            is_ca3 = "CA 3" in tt_upper
             df2 = self.df2_clean
             
             if c_in == '' and c_out == '':
-                pass
+                pass # Bỏ qua, sẽ được gán PLP ở đoạn sau
+            
             elif c_in == '' and c_out != '':
                 if is_ca3:
                     date_in = date_val - timedelta(days=1)
                     mask_in = (df2['MSNV_Match'] == msnv) & (df2['Thời gian quẹt thẻ'].dt.date == date_in)
                     swipes_in = df2.loc[mask_in, 'Thời gian quẹt thẻ'].dropna().sort_values()
-                    if not swipes_in.empty: self.df_result.at[idx, 'Clock In'] = swipes_in.iloc[-1].strftime("%H:%M")
+                    if not swipes_in.empty: 
+                        new_in = swipes_in.iloc[-1].strftime("%H:%M")
+                        # YÊU CẦU 1: Chống trùng lặp
+                        if new_in != c_out: self.df_result.at[idx, 'Clock In'] = new_in
                 else:
                     mask = (df2['MSNV_Match'] == msnv) & (df2['Thời gian quẹt thẻ'].dt.date == date_val)
                     swipes = df2.loc[mask, 'Thời gian quẹt thẻ'].dropna().sort_values()
-                    if not swipes.empty: self.df_result.at[idx, 'Clock In'] = swipes.iloc[0].strftime("%H:%M")
+                    if not swipes.empty: 
+                        new_in = swipes.iloc[0].strftime("%H:%M")
+                        if new_in != c_out: self.df_result.at[idx, 'Clock In'] = new_in
             
             elif c_in != '' and c_out == '':
                 mask_out = (df2['MSNV_Match'] == msnv) & (df2['Thời gian quẹt thẻ'].dt.date == date_val)
                 swipes_out = df2.loc[mask_out, 'Thời gian quẹt thẻ'].dropna().sort_values()
-                if not swipes_out.empty: self.df_result.at[idx, 'Clock Out'] = swipes_out.iloc[-1].strftime("%H:%M")
+                if not swipes_out.empty: 
+                    new_out = swipes_out.iloc[-1].strftime("%H:%M")
+                    if new_out != c_in: self.df_result.at[idx, 'Clock Out'] = new_out
 
         c_in = self.df_result.at[idx, 'Clock In']
         c_out = self.df_result.at[idx, 'Clock Out']
@@ -306,7 +361,7 @@ class TimekeepApp:
         needs_recalc = force_recalc
         if w_time == '' or w_time == 'Bù vân tay':
             needs_recalc = True
-        elif "HC" in timetable.upper() and c_in != '' and c_out != '' and c_in != 'Bù vân tay' and c_out != 'Bù vân tay':
+        elif "HC" in tt_upper and c_in != '' and c_out != '' and c_in != 'Bù vân tay' and c_out != 'Bù vân tay':
             try:
                 fmt = "%H:%M"
                 tin_dt = datetime.strptime(c_in[:5], fmt)
@@ -325,7 +380,7 @@ class TimekeepApp:
                 
                 total_sec = int((tout_dt - tin_dt).total_seconds())
                 
-                if "HC" in timetable.upper():
+                if "HC" in tt_upper:
                     lunch_start = tin_dt.replace(hour=11, minute=30, second=0)
                     lunch_end = tin_dt.replace(hour=13, minute=0, second=0)
                     overlap_start = max(tin_dt, lunch_start)
@@ -367,7 +422,6 @@ class TimekeepApp:
                     self.df_result.at[idx, 'Work Time'] = "00:00"
             except: pass
         
-        # --- TÍNH KẾT QUẢ CÔNG VÀ NGHỈ PHÉP ---
         w_time = str(self.df_result.at[idx, 'Work Time']).strip()
         cham_cong_val = ""
         
@@ -381,19 +435,17 @@ class TimekeepApp:
                 phanphut = ".5" if m >= 30 else ""
                 phanduoi = ""
                 
-                if "HC" in timetable.upper(): phanduoi = ""
-                elif "CA 1" in timetable.upper(): phanduoi = "C1"
-                elif "CA 2" in timetable.upper(): phanduoi = "C2"
-                elif "CA 3" in timetable.upper(): phanduoi = "C3"
+                if "HC" in tt_upper: phanduoi = ""
+                elif "CA 1" in tt_upper: phanduoi = "C1"
+                elif "CA 2" in tt_upper: phanduoi = "C2"
+                elif "CA 3" in tt_upper: phanduoi = "C3"
                 
                 cham_cong_val = phangio + phanphut + phanduoi
                 
-                # TÍNH NGHỈ PHÉP (Nếu không đủ 8 tiếng và chưa bị gán PLP)
                 if self.df_result.at[idx, 'Nghỉ phép'] != "PLP":
                     num_work = h + (0.5 if m >= 30 else 0)
                     if num_work < 8:
                         np_val = 8 - num_work
-                        # Định dạng g giúp bỏ số 0 thừa (vd: 2.0 -> 2, 2.5 -> 2.5)
                         self.df_result.at[idx, 'Nghỉ phép'] = f"{np_val:g}VR"
             except: pass
         
