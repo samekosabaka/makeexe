@@ -54,16 +54,20 @@ class TimekeepApp:
         tk.Button(frame_top, text="Bắt đầu Xử lý", command=self.process_data, bg="lightblue", font=("Arial", 10, "bold")).grid(row=0, column=3, rowspan=2, padx=20, ipadx=10, ipady=10)
         tk.Label(frame_top, text="(MẸO: Nhấp đúp chuột vào ô cột Timetable\nđể sửa tên Ca và tự động tính lại dữ liệu)", fg="red", font=("Arial", 8, "italic")).grid(row=0, column=4, rowspan=2, padx=10)
 
-        # --- Giao diện (UI) LỌC NGÀY THÁNG ---
+        # --- Giao diện (UI) LỌC NGÀY THÁNG & MSNV ---
         frame_filter = tk.Frame(self.root, pady=5)
         frame_filter.pack(fill=tk.X, padx=10)
         
         tk.Label(frame_filter, text="Lọc theo Ngày:", font=("Arial", 10, "bold")).pack(side=tk.LEFT, padx=5)
-        self.cb_date = ttk.Combobox(frame_filter, state="readonly", width=15, font=("Arial", 10))
+        self.cb_date = ttk.Combobox(frame_filter, state="readonly", width=12, font=("Arial", 10))
         self.cb_date.pack(side=tk.LEFT, padx=5)
         
+        tk.Label(frame_filter, text="MSNV:", font=("Arial", 10, "bold")).pack(side=tk.LEFT, padx=(15, 5))
+        self.cb_msnv = ttk.Combobox(frame_filter, state="readonly", width=12, font=("Arial", 10))
+        self.cb_msnv.pack(side=tk.LEFT, padx=5)
+        
         btn_filter = tk.Button(frame_filter, text="Lọc Dữ Liệu", command=self.apply_filter, bg="#ffcc00", font=("Arial", 9, "bold"))
-        btn_filter.pack(side=tk.LEFT, padx=10)
+        btn_filter.pack(side=tk.LEFT, padx=15)
 
         # --- Giao diện (UI) BẢNG DỮ LIỆU ---
         frame_middle = tk.Frame(self.root)
@@ -192,11 +196,14 @@ class TimekeepApp:
     def apply_filter(self):
         if self.df_result is None or self.df_result.empty: return
         selected_date = self.cb_date.get()
+        selected_msnv = self.cb_msnv.get()
         
-        if selected_date == "Tất cả" or selected_date == "":
-            df_to_show = self.df_result
-        else:
-            df_to_show = self.df_result[self.df_result['Date'] == selected_date]
+        df_to_show = self.df_result
+        if selected_date != "Tất cả" and selected_date != "":
+            df_to_show = df_to_show[df_to_show['Date'] == selected_date]
+            
+        if selected_msnv != "Tất cả" and selected_msnv != "":
+            df_to_show = df_to_show[df_to_show['MSNV'] == selected_msnv]
             
         self.display_data(df_to_show)
 
@@ -242,19 +249,15 @@ class TimekeepApp:
             for idx in self.df_result.index:
                 self.process_single_row(idx, force_recalc=False)
 
-            # --- KHỞI TẠO COMBOBOX LỌC NGÀY ---
-            unique_dates = []
-            for d in self.df_result['Date'].unique():
-                if str(d).strip() != '' and str(d) != 'nan':
-                    unique_dates.append(str(d))
-            unique_dates.sort()
-            
+            # --- KHỞI TẠO COMBOBOX LỌC ---
+            unique_dates = sorted([str(d) for d in self.df_result['Date'].unique() if str(d).strip() != '' and str(d) != 'nan'])
             self.cb_date['values'] = ["Tất cả"] + unique_dates
-            if len(unique_dates) > 0:
-                self.cb_date.current(1) # Lọc mặc định vào ngày đầu tiên
-            else:
-                self.cb_date.current(0)
-                
+            self.cb_date.current(1) if len(unique_dates) > 0 else self.cb_date.current(0)
+            
+            unique_msnvs = sorted([str(m) for m in self.df_result['MSNV'].unique() if str(m).strip() != '' and str(m) != 'nan'])
+            self.cb_msnv['values'] = ["Tất cả"] + unique_msnvs
+            self.cb_msnv.current(0)
+            
             self.apply_filter()
             messagebox.showinfo("Thành công", "Xử lý dữ liệu hoàn tất!")
 
@@ -270,7 +273,7 @@ class TimekeepApp:
         timetable = str(self.df_result.at[idx, 'Timetable']).strip()
         tt_upper = timetable.upper()
         
-        # Map On/Off duty
+        # 1. ÁP DỤNG ON/OFF DUTY CHUẨN MỚI NHẤT
         if "HC" in tt_upper:
             on_duty, off_duty = "07:30", "17:00"
         elif "CA 1" in tt_upper:
@@ -286,13 +289,39 @@ class TimekeepApp:
         self.df_result.at[idx, 'On duty'] = on_duty
         self.df_result.at[idx, 'Off duty'] = off_duty
 
-        # --- YÊU CẦU 2: Đảo chiều/Sắp xếp lại vân tay theo Ca mới ---
-        if c_in != '' and c_out != '' and c_in != 'Bù vân tay' and c_out != 'Bù vân tay':
-            times = sorted([c_in, c_out])
+        # 2. TỰ ĐỘNG SẮP XẾP LẠI (ĐẢO CHIỀU) VÂN TAY SẴN CÓ DỰA VÀO ON/OFF DUTY
+        available_times = []
+        if c_in != '' and c_in != 'Bù vân tay' and str(c_in) != 'nan': available_times.append(c_in)
+        if c_out != '' and c_out != 'Bù vân tay' and str(c_out) != 'nan': available_times.append(c_out)
+
+        c_in, c_out = '', ''
+        if len(available_times) == 2:
+            times = sorted(available_times)
             if "CA 3" in tt_upper:
-                c_in, c_out = times[1], times[0] # Lớn (tối) là In, Nhỏ (sáng) là Out
+                c_in, c_out = times[1], times[0]
             else:
-                c_in, c_out = times[0], times[1] # Nhỏ là In, Lớn là Out
+                c_in, c_out = times[0], times[1]
+        elif len(available_times) == 1:
+            t = available_times[0]
+            try:
+                fmt = "%H:%M"
+                t_dt = datetime.strptime(t[:5], fmt)
+                on_dt = datetime.strptime(on_duty, fmt)
+                off_dt = datetime.strptime(off_duty, fmt)
+                
+                # Hàm tính khoảng cách thời gian thông minh (chống lỗi qua đêm)
+                def get_dist(d1, d2):
+                    return min(abs((d1 - d2).total_seconds()), 
+                               abs((d1 + timedelta(days=1) - d2).total_seconds()), 
+                               abs((d1 - timedelta(days=1) - d2).total_seconds()))
+                
+                # Vân tay gần giờ On thì gán vào In, gần giờ Off thì gán vào Out
+                if get_dist(t_dt, on_dt) <= get_dist(t_dt, off_dt):
+                    c_in = t
+                else:
+                    c_out = t
+            except:
+                c_in = t
 
         self.df_result.at[idx, 'Clock In'] = c_in
         self.df_result.at[idx, 'Clock Out'] = c_out
@@ -314,6 +343,7 @@ class TimekeepApp:
         except:
             date_val = None
 
+        # 3. TÌM KIẾM BÙ VÂN TAY TỪ DỮ LIỆU HR
         if date_val and (c_in == '' or c_out == ''):
             is_ca3 = "CA 3" in tt_upper
             df2 = self.df2_clean
@@ -328,7 +358,7 @@ class TimekeepApp:
                     swipes_in = df2.loc[mask_in, 'Thời gian quẹt thẻ'].dropna().sort_values()
                     if not swipes_in.empty: 
                         new_in = swipes_in.iloc[-1].strftime("%H:%M")
-                        # YÊU CẦU 1: Chống trùng lặp
+                        # CHỐNG TRÙNG LẶP: Nếu HR bù trùng với dữ liệu đã có thì bỏ qua
                         if new_in != c_out: self.df_result.at[idx, 'Clock In'] = new_in
                 else:
                     mask = (df2['MSNV_Match'] == msnv) & (df2['Thời gian quẹt thẻ'].dt.date == date_val)
@@ -347,6 +377,7 @@ class TimekeepApp:
         c_in = self.df_result.at[idx, 'Clock In']
         c_out = self.df_result.at[idx, 'Clock Out']
         
+        # 4. CHỐT KẾT QUẢ "BÙ VÂN TAY" HOẶC "PLP"
         if c_in == '' and c_out == '':
             self.df_result.at[idx, 'Nghỉ phép'] = "PLP"
         elif c_in == '' and c_out != '':
@@ -358,6 +389,7 @@ class TimekeepApp:
 
         w_time = str(self.df_result.at[idx, 'Work Time']).strip()
 
+        # 5. TÍNH WORK TIME & LATE/EARLY
         needs_recalc = force_recalc
         if w_time == '' or w_time == 'Bù vân tay':
             needs_recalc = True
@@ -422,6 +454,7 @@ class TimekeepApp:
                     self.df_result.at[idx, 'Work Time'] = "00:00"
             except: pass
         
+        # 6. TÍNH KẾT QUẢ CÔNG VÀ NGHỈ PHÉP (VR)
         w_time = str(self.df_result.at[idx, 'Work Time']).strip()
         cham_cong_val = ""
         
