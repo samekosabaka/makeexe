@@ -12,13 +12,11 @@ class TimekeepApp:
         self.root.title("iamhisu")
         self.root.geometry("1250x650")
         
-        # --- Cập nhật Logo mới bằng file .ico ---
         try:
             self.root.iconbitmap('fr.ico')
         except Exception:
-            pass # Bỏ qua nếu không tìm thấy file
+            pass
         
-        # Căn giữa cửa sổ
         self.root.update_idletasks()
         width = 1250
         height = 680
@@ -31,8 +29,8 @@ class TimekeepApp:
         self.df1_clean = None
         self.df2_clean = None
         self.df_result = None
+        self.current_theme = "Sáng"
 
-        # --- Tùy chỉnh giao diện Bảng (Treeview Style) ---
         style = ttk.Style()
         style.theme_use("clam")
         style.configure("Treeview", 
@@ -43,7 +41,6 @@ class TimekeepApp:
         style.map('Treeview', background=[('selected', '#347083')])
         style.configure("Treeview.Heading", font=('Arial', 10, 'bold'), background="#d3d3d3")
 
-        # --- Giao diện (UI) CHỌN FILE & HƯỚNG DẪN ---
         frame_top = tk.Frame(self.root, pady=5)
         frame_top.pack(fill=tk.X)
 
@@ -59,11 +56,25 @@ class TimekeepApp:
 
         tk.Button(frame_top, text="Bắt đầu Xử lý", command=self.process_data, bg="lightblue", font=("Arial", 10, "bold")).grid(row=0, column=3, rowspan=2, padx=20, ipadx=10, ipady=10)
         
-        # --- Cập nhật dòng hướng dẫn màu xanh ---
-        tk.Label(frame_top, text="(MẸO: Nhấp đúp chuột vào cột Timetable để sửa tên Ca và tính lại dữ liệu)", fg="red", font=("Arial", 9, "italic")).grid(row=0, column=4, padx=10, sticky="w")
-        tk.Label(frame_top, text="(HƯỚNG DẪN: Hãy mở file ZKT bằng Excel và chọn Save As thành định dạng .xlsx chuẩn)", fg="blue", font=("Arial", 9, "italic")).grid(row=1, column=4, padx=10, sticky="w")
+        frame_hints = tk.Frame(frame_top)
+        frame_hints.grid(row=0, column=4, rowspan=2, padx=10, sticky="w")
+        tk.Label(frame_hints, text="(MẸO: Nhấp đúp chuột vào cột Timetable để sửa tên Ca và tính lại dữ liệu)", fg="red", font=("Arial", 9, "italic")).pack(anchor="w")
+        tk.Label(frame_hints, text="(HƯỚNG DẪN: Hãy mở file ZKT bằng Excel và chọn Save As thành định dạng .xlsx chuẩn)", fg="blue", font=("Arial", 9, "italic")).pack(anchor="w")
 
-        # --- Giao diện (UI) BỘ LỌC ĐA NĂNG ---
+        # --- NÂNG CẤP: KHU VỰC CÀI ĐẶT GIAO DIỆN & TRONG SUỐT ---
+        frame_settings = tk.Frame(frame_top)
+        frame_settings.grid(row=0, column=5, rowspan=2, padx=20, sticky="e")
+        
+        self.btn_theme = tk.Button(frame_settings, text="🎨 Giao diện: Sáng", command=self.toggle_theme, bg="#e0e0e0", font=("Arial", 9, "bold"))
+        self.btn_theme.pack(fill=tk.X, pady=2)
+        
+        frame_opacity = tk.Frame(frame_settings)
+        frame_opacity.pack(fill=tk.X, pady=2)
+        self.lbl_opacity = tk.Label(frame_opacity, text="Độ trong suốt:", font=("Arial", 8))
+        self.lbl_opacity.pack(side=tk.LEFT)
+        self.opacity_slider = ttk.Scale(frame_opacity, from_=0.2, to=1.0, value=1.0, command=self.change_opacity)
+        self.opacity_slider.pack(side=tk.LEFT, padx=5)
+
         frame_filter = tk.Frame(self.root, pady=5)
         frame_filter.pack(fill=tk.X, padx=10)
         
@@ -87,7 +98,11 @@ class TimekeepApp:
         btn_filter = tk.Button(frame_filter, text="Lọc Dữ Liệu", command=self.apply_filter, bg="#ffcc00", font=("Arial", 9, "bold"))
         btn_filter.pack(side=tk.LEFT, padx=(15, 5))
 
-        # --- Giao diện (UI) BẢNG DỮ LIỆU ---
+        self.cb_date.bind("<<ComboboxSelected>>", self.apply_filter)
+        self.cb_msnv.bind("<<ComboboxSelected>>", self.apply_filter)
+        self.cb_timetable.bind("<<ComboboxSelected>>", self.apply_filter)
+        self.cb_worktime.bind("<<ComboboxSelected>>", self.apply_filter)
+
         frame_middle = tk.Frame(self.root)
         frame_middle.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
@@ -101,15 +116,84 @@ class TimekeepApp:
         scroll_x.pack(side=tk.BOTTOM, fill=tk.X)
         self.tree.pack(fill=tk.BOTH, expand=True)
 
-        self.tree.tag_configure('oddrow', background="white")
-        self.tree.tag_configure('evenrow', background="#f0f0f0")
+        self.tree.tag_configure('oddrow', background="white", foreground="black")
+        self.tree.tag_configure('evenrow', background="#f0f0f0", foreground="black")
 
         self.tree.bind('<Double-1>', self.on_double_click)
 
-        # --- Giao diện (UI) XUẤT FILE ---
         frame_bottom = tk.Frame(self.root, pady=10)
         frame_bottom.pack(fill=tk.X)
         tk.Button(frame_bottom, text="Xuất dữ liệu ra Excel", command=self.export_excel, bg="lightgreen", font=("Arial", 12, "bold")).pack(pady=5)
+        
+        # Khởi tạo màu mặc định
+        self.apply_theme("Sáng")
+
+    # --- LOGIC GIAO DIỆN & TRONG SUỐT ---
+    def change_opacity(self, val):
+        self.root.attributes('-alpha', float(val))
+
+    def toggle_theme(self):
+        themes = ["Sáng", "Tối", "Trong suốt"]
+        idx = themes.index(self.current_theme)
+        self.current_theme = themes[(idx + 1) % len(themes)]
+        self.apply_theme(self.current_theme)
+
+    def apply_theme(self, theme):
+        self.btn_theme.config(text=f"🎨 Giao diện: {theme}")
+        
+        if theme == "Sáng":
+            bg_main = "#f0f0f0"
+            fg_main = "black"
+            bg_btn = "#e0e0e0"
+            bg_lbl = "white"
+            self.root.attributes('-alpha', self.opacity_slider.get())
+        elif theme == "Tối":
+            bg_main = "#2b2b2b"
+            fg_main = "white"
+            bg_btn = "#555555"
+            bg_lbl = "#444444"
+            self.root.attributes('-alpha', self.opacity_slider.get())
+        elif theme == "Trong suốt":
+            bg_main = "#0a0a0a"
+            fg_main = "#00ffcc"
+            bg_btn = "#222222"
+            bg_lbl = "#1a1a1a"
+            self.opacity_slider.set(0.85) # Đặt độ trong suốt mặc định cho chế độ này
+            self.root.attributes('-alpha', 0.85)
+
+        def _update_colors(widget):
+            try:
+                wtype = widget.winfo_class()
+                if wtype in ('Frame', 'Tk', 'Toplevel'):
+                    widget.configure(bg=bg_main)
+                elif wtype == 'Label':
+                    if widget in [self.lbl_file1, self.lbl_file2]:
+                        widget.configure(bg=bg_lbl, fg=fg_main)
+                    else:
+                        c_fg = widget.cget('fg')
+                        if c_fg in ['red', 'blue']:
+                            widget.configure(bg=bg_main) 
+                        else:
+                            widget.configure(bg=bg_main, fg=fg_main)
+                elif wtype == 'Button':
+                    c_text = widget.cget('text')
+                    if c_text in ["Bắt đầu Xử lý", "Xuất dữ liệu ra Excel", "Lọc Dữ Liệu"]:
+                        pass 
+                    else:
+                        widget.configure(bg=bg_btn, fg=fg_main)
+            except Exception:
+                pass
+            for child in widget.winfo_children():
+                _update_colors(child)
+                
+        _update_colors(self.root)
+        
+        style = ttk.Style()
+        style.configure("Treeview", background=bg_lbl, fieldbackground=bg_lbl, foreground=fg_main)
+        style.configure("Treeview.Heading", background=bg_btn, foreground=fg_main)
+        self.tree.tag_configure('oddrow', background=bg_lbl, foreground=fg_main)
+        self.tree.tag_configure('evenrow', background=bg_main, foreground=fg_main)
+
 
     def select_file1(self):
         self.file1_path = filedialog.askopenfilename(filetypes=[("Excel & CSV Files", "*.xlsx *.xls *.csv")])
@@ -206,14 +290,12 @@ class TimekeepApp:
                     self.df_result.at[idx, 'Timetable'] = new_val
                     self.process_single_row(idx, force_recalc=True)
                     self.tree.item(item_id, values=list(self.df_result.loc[idx]))
-                    
-                    unique_timetables = sorted([str(t) for t in self.df_result['Timetable'].unique() if str(t).strip() != '' and str(t) != 'nan'])
-                    self.cb_timetable['values'] = ["Tất cả"] + unique_timetables
+                    self.apply_filter()
                     
             cb.bind("<Return>", save_edit)
             cb.bind("<FocusOut>", save_edit)
 
-    def apply_filter(self):
+    def apply_filter(self, event=None):
         if self.df_result is None or self.df_result.empty: return
         
         selected_date = self.cb_date.get()
@@ -221,21 +303,36 @@ class TimekeepApp:
         selected_timetable = self.cb_timetable.get()
         selected_worktime = self.cb_worktime.get()
         
-        df_to_show = self.df_result
+        df_to_show = self.df_result.copy()
         
         if selected_date != "Tất cả" and selected_date != "":
             df_to_show = df_to_show[df_to_show['Date'] == selected_date]
-            
         if selected_msnv != "Tất cả" and selected_msnv != "":
             df_to_show = df_to_show[df_to_show['MSNV'] == selected_msnv]
-            
         if selected_timetable != "Tất cả" and selected_timetable != "":
             df_to_show = df_to_show[df_to_show['Timetable'] == selected_timetable]
-            
-        if selected_worktime != "Tất cả" and selected_worktime != "":
-            df_to_show = df_to_show[df_to_show['Work Time'] == selected_worktime]
+        if selected_worktime == "Bù vân tay":
+            df_to_show = df_to_show[df_to_show['Work Time'] == "Bù vân tay"]
             
         self.display_data(df_to_show)
+
+        def get_dynamic_opts(col_name):
+            df_f = self.df_result.copy()
+            if col_name != 'Date' and selected_date not in ["Tất cả", ""]:
+                df_f = df_f[df_f['Date'] == selected_date]
+            if col_name != 'MSNV' and selected_msnv not in ["Tất cả", ""]:
+                df_f = df_f[df_f['MSNV'] == selected_msnv]
+            if col_name != 'Timetable' and selected_timetable not in ["Tất cả", ""]:
+                df_f = df_f[df_f['Timetable'] == selected_timetable]
+            if col_name != 'Work Time' and selected_worktime == "Bù vân tay":
+                df_f = df_f[df_f['Work Time'] == "Bù vân tay"]
+                
+            opts = sorted([str(x) for x in df_f[col_name].unique() if str(x).strip() != '' and str(x) != 'nan'])
+            return ["Tất cả"] + opts
+
+        self.cb_date['values'] = get_dynamic_opts('Date')
+        self.cb_msnv['values'] = get_dynamic_opts('MSNV')
+        self.cb_timetable['values'] = get_dynamic_opts('Timetable')
 
     def process_data(self):
         if not self.file1_path or not self.file2_path:
@@ -403,13 +500,13 @@ class TimekeepApp:
                     emp_swipes = df2.loc[df2['MSNV_Match'] == msnv, 'Thời gian quẹt thẻ'].dropna()
                     
                     if c_in == '' and c_out != '':
-                        valid_ins = emp_swipes[(emp_swipes >= target_in_dt - timedelta(hours=4)) & (emp_swipes <= target_in_dt + timedelta(hours=4))]
+                        valid_ins = emp_swipes[(emp_swipes >= target_in_dt - timedelta(hours=4)) & (emp_swipes <= target_out_dt)]
                         if not valid_ins.empty:
                             new_in = valid_ins.min().strftime("%H:%M")
                             if new_in != c_out: self.df_result.at[idx, 'Clock In'] = new_in
                             
                     elif c_out == '' and c_in != '':
-                        valid_outs = emp_swipes[(emp_swipes >= target_out_dt - timedelta(hours=4)) & (emp_swipes <= target_out_dt + timedelta(hours=8))]
+                        valid_outs = emp_swipes[(emp_swipes >= target_in_dt) & (emp_swipes <= target_out_dt + timedelta(hours=8))]
                         if not valid_outs.empty:
                             new_out = valid_outs.max().strftime("%H:%M")
                             if new_out != c_in: self.df_result.at[idx, 'Clock Out'] = new_out
@@ -591,7 +688,6 @@ def show_login():
     login_win.geometry("300x160")
     login_win.resizable(False, False)
     
-    # --- Cập nhật Logo mới bằng file .ico cho cửa sổ Đăng Nhập ---
     try:
         login_win.iconbitmap('fr.ico')
     except Exception:
