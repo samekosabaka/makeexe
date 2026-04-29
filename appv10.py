@@ -4,6 +4,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Border, Side
+import os
 
 class TimekeepApp:
     def __init__(self, root):
@@ -156,14 +157,12 @@ class TimekeepApp:
             item_id = self.tree.focus()
             if not item_id: return
             
-            # Lấy index thực tế trong DataFrame
             idx = int(item_id)
-            
             x, y, w, h = self.tree.bbox(item_id, column)
             current_val = self.tree.set(item_id, column)
             
-            # Khung chọn nhanh các Ca
-            cb = ttk.Combobox(self.tree, values=["HC", "CA 1", "CA 2", "CA 3"], state="normal")
+            # Sửa chuẩn tên HC
+            cb = ttk.Combobox(self.tree, values=["HC 7H30-17H00", "CA 1", "CA 2", "CA 3"], state="normal")
             cb.set(current_val)
             cb.place(x=x, y=y, width=w, height=h)
             cb.focus_set()
@@ -174,8 +173,8 @@ class TimekeepApp:
                 if new_val != current_val:
                     # Lưu Timetable mới
                     self.df_result.at[idx, 'Timetable'] = new_val
-                    # Tính toán lại dòng này
-                    self.process_single_row(idx)
+                    # force_recalc=True: ÉP PHẦN MỀM XÓA KẾT QUẢ CŨ VÀ TÍNH LẠI MỚI
+                    self.process_single_row(idx, force_recalc=True)
                     # Cập nhật hiển thị dòng trên UI
                     self.tree.item(item_id, values=list(self.df_result.loc[idx]))
                     
@@ -215,15 +214,14 @@ class TimekeepApp:
             df2['Thời gian quẹt thẻ'] = pd.to_datetime(df2['Thời gian quẹt thẻ'], errors='coerce')
             self.df2_clean = df2
 
-            # Khởi tạo bảng kết quả
             self.df_result = self.df1_clean.copy()
             self.df_result['Kết Quả Công'] = ''
             self.df_result['Nghỉ phép'] = ''
             self.df_result['Tăng ca'] = ''
 
-            # Chạy logic xử lý cho từng dòng
+            # Chạy logic xử lý cho từng dòng (Mặc định không ép tính lại trừ khi Work time trống)
             for idx in self.df_result.index:
-                self.process_single_row(idx)
+                self.process_single_row(idx, force_recalc=False)
 
             self.display_data(self.df_result)
             messagebox.showinfo("Thành công", "Xử lý dữ liệu hoàn tất!")
@@ -232,7 +230,7 @@ class TimekeepApp:
             messagebox.showerror("Lỗi", f"Đã xảy ra lỗi trong quá trình xử lý:\n{str(e)}")
 
     # --- LOGIC XỬ LÝ 1 DÒNG (DÙNG ĐỂ CHẠY HÀNG LOẠT VÀ TÍNH LẠI KHI SỬA TIMETABLE) ---
-    def process_single_row(self, idx):
+    def process_single_row(self, idx, force_recalc=False):
         orig_row = self.df1_clean.loc[idx]
         c_in = str(orig_row['Clock In']).strip()
         c_out = str(orig_row['Clock Out']).strip()
@@ -257,10 +255,15 @@ class TimekeepApp:
         self.df_result.at[idx, 'On duty'] = on_duty
         self.df_result.at[idx, 'Off duty'] = off_duty
 
-        # Khôi phục trạng thái ban đầu để tính lại
         self.df_result.at[idx, 'Clock In'] = c_in
         self.df_result.at[idx, 'Clock Out'] = c_out
-        self.df_result.at[idx, 'Work Time'] = str(orig_row['Work Time']).strip()
+        
+        # NẾU ÉP TÍNH LẠI (Do đổi ca) -> Xóa Work Time cũ của máy chấm công
+        if force_recalc:
+            self.df_result.at[idx, 'Work Time'] = ''
+        else:
+            self.df_result.at[idx, 'Work Time'] = str(orig_row['Work Time']).strip()
+            
         self.df_result.at[idx, 'Late'] = ''
         self.df_result.at[idx, 'Early'] = ''
         self.df_result.at[idx, 'OT Time'] = ''
@@ -278,7 +281,7 @@ class TimekeepApp:
             df2 = self.df2_clean
             
             if c_in == '' and c_out == '':
-                pass # Không lấy dữ liệu nếu cả 2 trống
+                pass
             elif c_in == '' and c_out != '':
                 if is_ca3:
                     date_in = date_val - timedelta(days=1)
@@ -309,8 +312,7 @@ class TimekeepApp:
 
         w_time = str(self.df_result.at[idx, 'Work Time']).strip()
 
-        # CHỈ TÍNH TOÁN LẠI NẾU: Work time bị trống/lỗi HOẶC phát hiện Ca HC về sớm (làm nửa buổi)
-        needs_recalc = False
+        needs_recalc = force_recalc
         if w_time == '' or w_time == 'Bù vân tay':
             needs_recalc = True
         elif "HC" in timetable.upper() and c_in != '' and c_out != '' and c_in != 'Bù vân tay' and c_out != 'Bù vân tay':
@@ -408,7 +410,6 @@ class TimekeepApp:
 
         for index, row in df.iterrows():
             tag = 'evenrow' if index % 2 == 0 else 'oddrow'
-            # Gắn iid = index để khi click biết dòng nào cần sửa
             self.tree.insert("", "end", iid=str(index), values=list(row), tags=(tag,))
 
     def export_excel(self):
