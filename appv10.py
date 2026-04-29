@@ -9,16 +9,14 @@ import os
 class TimekeepApp:
     def __init__(self, root):
         self.root = root
-        # 4. Đổi tên phần mềm thành iamhisu
         self.root.title("iamhisu")
         self.root.geometry("1250x650")
         
-        # 4. Thêm logo Frieren làm icon app
+        # --- Cập nhật Logo mới bằng file .ico ---
         try:
-            icon = tk.PhotoImage(file='frieren.png')
-            self.root.iconphoto(True, icon)
+            self.root.iconbitmap('fr.ico')
         except Exception:
-            pass # Bỏ qua nếu không tìm thấy file ảnh
+            pass # Bỏ qua nếu không tìm thấy file
         
         # Căn giữa cửa sổ
         self.root.update_idletasks()
@@ -61,9 +59,9 @@ class TimekeepApp:
 
         tk.Button(frame_top, text="Bắt đầu Xử lý", command=self.process_data, bg="lightblue", font=("Arial", 10, "bold")).grid(row=0, column=3, rowspan=2, padx=20, ipadx=10, ipady=10)
         
-        # 3. Thêm hướng dẫn và mẹo
+        # --- Cập nhật dòng hướng dẫn màu xanh ---
         tk.Label(frame_top, text="(MẸO: Nhấp đúp chuột vào cột Timetable để sửa tên Ca và tính lại dữ liệu)", fg="red", font=("Arial", 9, "italic")).grid(row=0, column=4, padx=10, sticky="w")
-        tk.Label(frame_top, text="(HƯỚNG DẪN: Phần mềm tự động đổi file ZKT .xls (giả Excel) sang .xlsx chuẩn)", fg="blue", font=("Arial", 9, "italic")).grid(row=1, column=4, padx=10, sticky="w")
+        tk.Label(frame_top, text="(HƯỚNG DẪN: Hãy mở file ZKT bằng Excel và chọn Save As thành định dạng .xlsx chuẩn)", fg="blue", font=("Arial", 9, "italic")).grid(row=1, column=4, padx=10, sticky="w")
 
         # --- Giao diện (UI) BỘ LỌC ĐA NĂNG ---
         frame_filter = tk.Frame(self.root, pady=5)
@@ -77,12 +75,10 @@ class TimekeepApp:
         self.cb_msnv = ttk.Combobox(frame_filter, state="readonly", width=10, font=("Arial", 9))
         self.cb_msnv.pack(side=tk.LEFT, padx=2)
         
-        # 1. Thêm bộ lọc Timetable
         tk.Label(frame_filter, text="Ca làm:", font=("Arial", 9, "bold")).pack(side=tk.LEFT, padx=(10, 2))
         self.cb_timetable = ttk.Combobox(frame_filter, state="readonly", width=15, font=("Arial", 9))
         self.cb_timetable.pack(side=tk.LEFT, padx=2)
         
-        # 2. Thêm bộ lọc Work Time
         tk.Label(frame_filter, text="Work Time:", font=("Arial", 9, "bold")).pack(side=tk.LEFT, padx=(10, 2))
         self.cb_worktime = ttk.Combobox(frame_filter, state="readonly", values=["Tất cả", "Bù vân tay"], width=12, font=("Arial", 9))
         self.cb_worktime.pack(side=tk.LEFT, padx=2)
@@ -210,7 +206,7 @@ class TimekeepApp:
                     self.df_result.at[idx, 'Timetable'] = new_val
                     self.process_single_row(idx, force_recalc=True)
                     self.tree.item(item_id, values=list(self.df_result.loc[idx]))
-                    # Cập nhật lại dropdown lọc nếu có ca mới
+                    
                     unique_timetables = sorted([str(t) for t in self.df_result['Timetable'].unique() if str(t).strip() != '' and str(t) != 'nan'])
                     self.cb_timetable['values'] = ["Tất cả"] + unique_timetables
                     
@@ -279,11 +275,9 @@ class TimekeepApp:
             self.df_result['Nghỉ phép'] = ''
             self.df_result['Tăng ca'] = ''
 
-            # Chạy logic xử lý
             for idx in self.df_result.index:
                 self.process_single_row(idx, force_recalc=False)
 
-            # --- KHỞI TẠO TẤT CẢ COMBOBOX LỌC ---
             unique_dates = sorted([str(d) for d in self.df_result['Date'].unique() if str(d).strip() != '' and str(d) != 'nan'])
             self.cb_date['values'] = ["Tất cả"] + unique_dates
             self.cb_date.current(1) if len(unique_dates) > 0 else self.cb_date.current(0)
@@ -296,7 +290,7 @@ class TimekeepApp:
             self.cb_timetable['values'] = ["Tất cả"] + unique_timetables
             self.cb_timetable.current(0)
             
-            self.cb_worktime.current(0) # Reset lại về "Tất cả"
+            self.cb_worktime.current(0)
             
             self.apply_filter()
             messagebox.showinfo("Thành công", "Xử lý dữ liệu hoàn tất!")
@@ -593,15 +587,13 @@ def show_login():
     root = tk.Tk()
     root.withdraw()
     login_win = tk.Toplevel(root)
-    # 4. Đổi tên cửa sổ login thành iamhisu
     login_win.title("iamhisu - Đăng nhập")
     login_win.geometry("300x160")
     login_win.resizable(False, False)
     
-    # 4. Thêm logo vào cửa sổ đăng nhập
+    # --- Cập nhật Logo mới bằng file .ico cho cửa sổ Đăng Nhập ---
     try:
-        icon = tk.PhotoImage(file='frieren.png')
-        login_win.iconphoto(True, icon)
+        login_win.iconbitmap('fr.ico')
     except Exception:
         pass
     
