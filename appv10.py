@@ -74,7 +74,7 @@ class TimekeepApp:
     def select_file1(self):
         self.file1_path = filedialog.askopenfilename(filetypes=[("Excel & CSV Files", "*.xlsx *.xls *.csv")])
         if self.file1_path:
-            # --- NEW LOGIC: Tự động phát hiện và chuyển đổi file .xls giả mạo thành .xlsx ---
+            # Tự động phát hiện và chuyển đổi file .xls giả mạo thành .xlsx
             if self.file1_path.lower().endswith('.xls'):
                 try:
                     pd.read_excel(self.file1_path)
@@ -99,12 +99,12 @@ class TimekeepApp:
                                         continue
                             
                             if df_temp is not None:
-                                new_path = self.file1_path + "x" # Chuyển đuôi thành .xlsx
+                                new_path = self.file1_path + "x"
                                 df_temp.to_excel(new_path, index=False)
                                 self.file1_path = new_path
                                 messagebox.showinfo("Tự động sửa lỗi", "Phát hiện File ZKT là định dạng giả mạo (CSV).\nPhần mềm đã tự động chuyển đổi thành file chuẩn (.xlsx) và nạp vào hệ thống!")
                         except Exception:
-                            pass # Bỏ qua nếu có lỗi không lường trước, sẽ xử lý ở hàm read_file
+                            pass 
             
             self.lbl_file1.config(text=self.file1_path.split('/')[-1])
 
@@ -201,25 +201,8 @@ class TimekeepApp:
                     is_ca3 = "CA 3" in timetable.upper()
                     
                     if c_in == '' and c_out == '':
-                        if is_ca3:
-                            date_in = date_val - timedelta(days=1)
-                            mask_in = (df2['MSNV_Match'] == msnv) & (df2['Thời gian quẹt thẻ'].dt.date == date_in)
-                            swipes_in = df2.loc[mask_in, 'Thời gian quẹt thẻ'].dropna().sort_values()
-                            if not swipes_in.empty:
-                                res_df.at[idx, 'Clock In'] = swipes_in.iloc[-1].strftime("%H:%M")
-                            
-                            mask_out = (df2['MSNV_Match'] == msnv) & (df2['Thời gian quẹt thẻ'].dt.date == date_val)
-                            swipes_out = df2.loc[mask_out, 'Thời gian quẹt thẻ'].dropna().sort_values()
-                            if not swipes_out.empty:
-                                res_df.at[idx, 'Clock Out'] = swipes_out.iloc[-1].strftime("%H:%M")
-                        else:
-                            mask = (df2['MSNV_Match'] == msnv) & (df2['Thời gian quẹt thẻ'].dt.date == date_val)
-                            swipes = df2.loc[mask, 'Thời gian quẹt thẻ'].dropna().sort_values()
-                            if len(swipes) >= 2:
-                                res_df.at[idx, 'Clock In'] = swipes.iloc[0].strftime("%H:%M")
-                                res_df.at[idx, 'Clock Out'] = swipes.iloc[-1].strftime("%H:%M")
-                            elif len(swipes) == 1:
-                                res_df.at[idx, 'Clock In'] = swipes.iloc[0].strftime("%H:%M")
+                        # Nếu từ đầu cả 2 trống thì KHÔNG bù dữ liệu từ file 2
+                        pass 
                     
                     elif c_in == '' and c_out != '':
                         if is_ca3:
@@ -240,11 +223,10 @@ class TimekeepApp:
                         if not swipes_out.empty:
                             res_df.at[idx, 'Clock Out'] = swipes_out.iloc[-1].strftime("%H:%M")
 
-                # Cập nhật lại Clock in/out sau khi đã chạy đối chiếu với File 2
                 c_in = res_df.at[idx, 'Clock In']
                 c_out = res_df.at[idx, 'Clock Out']
                 
-                # --- NEW LOGIC: ĐIỀN BÙ VÂN TAY VÀ PLP ---
+                # ĐIỀN BÙ VÂN TAY VÀ PLP
                 if c_in == '' and c_out == '':
                     res_df.at[idx, 'Nghỉ phép'] = "PLP"
                 elif c_in == '' and c_out != '':
@@ -256,8 +238,26 @@ class TimekeepApp:
 
                 w_time = str(res_df.at[idx, 'Work Time']).strip()
 
-                # Chỉ tính toán Work Time nếu có đủ giờ vào/ra và không phải là "Bù vân tay"
-                if w_time == '' and c_in != '' and c_out != '' and c_in != 'Bù vân tay' and c_out != 'Bù vân tay':
+                # --- CHỈ TÍNH LẠI NẾU WORK TIME TRỐNG HOẶC LÀ CA HC NỬA BUỔI ---
+                needs_recalc = False
+                if w_time == '' or w_time == 'Bù vân tay':
+                    needs_recalc = True
+                elif "HC" in timetable.upper() and c_in != '' and c_out != '' and c_in != 'Bù vân tay' and c_out != 'Bù vân tay':
+                    try:
+                        fmt = "%H:%M"
+                        tin_dt = datetime.strptime(c_in[:5], fmt)
+                        tout_dt = datetime.strptime(c_out[:5], fmt)
+                        if tout_dt < tin_dt: tout_dt += timedelta(days=1)
+                        physical_sec = (tout_dt - tin_dt).total_seconds()
+                        
+                        # Nếu đi làm <= 5.5 tiếng (đi làm 1 buổi), ZKTeco thường tính sai do trừ lố 1.5h
+                        if physical_sec <= 5.5 * 3600:
+                            needs_recalc = True
+                    except:
+                        pass
+
+                # --- THỰC HIỆN TÍNH TOÁN THÔNG MINH ---
+                if needs_recalc and c_in != '' and c_out != '' and c_in != 'Bù vân tay' and c_out != 'Bù vân tay':
                     try:
                         fmt = "%H:%M"
                         tin_dt = datetime.strptime(c_in[:5], fmt)
@@ -267,7 +267,7 @@ class TimekeepApp:
                         
                         total_sec = int((tout_dt - tin_dt).total_seconds())
                         
-                        # TRỪ THỜI GIAN NGHỈ TRƯA CA HC (11:30 - 13:00)
+                        # TRỪ THỜI GIAN NGHỈ TRƯA CA HC (11:30 - 13:00) 
                         if "HC" in timetable.upper():
                             lunch_start = tin_dt.replace(hour=11, minute=30, second=0)
                             lunch_end = tin_dt.replace(hour=13, minute=0, second=0)
@@ -283,12 +283,17 @@ class TimekeepApp:
                                 res_df.at[idx, 'Work Time'] = "08:00"
                                 ot_sec = total_sec - 8 * 3600
                                 res_df.at[idx, 'OT Time'] = f"{ot_sec // 3600:02d}:{(ot_sec % 3600) // 60:02d}"
-                                
-                            elif total_sec < 8 * 3600:
+                                res_df.at[idx, 'Late'] = ""  
+                                res_df.at[idx, 'Early'] = ""
+                            else:
                                 res_df.at[idx, 'Work Time'] = f"{total_sec // 3600:02d}:{(total_sec % 3600) // 60:02d}"
+                                res_df.at[idx, 'OT Time'] = "" 
                                 
                                 on_duty = str(res_df.at[idx, 'On duty']).strip()
                                 off_duty = str(res_df.at[idx, 'Off duty']).strip()
+                                
+                                late_val = ""
+                                early_val = ""
                                 
                                 if on_duty != '' and off_duty != '':
                                     try:
@@ -310,20 +315,23 @@ class TimekeepApp:
                                             
                                         late_sec = int((dt_in - dt_on).total_seconds())
                                         if late_sec > 0:
-                                            res_df.at[idx, 'Late'] = f"{late_sec // 3600:02d}:{(late_sec % 3600) // 60:02d}"
+                                            late_val = f"{late_sec // 3600:02d}:{(late_sec % 3600) // 60:02d}"
                                             
                                         early_sec = int((dt_off - dt_out).total_seconds())
                                         if early_sec > 0:
-                                            res_df.at[idx, 'Early'] = f"{early_sec // 3600:02d}:{(early_sec % 3600) // 60:02d}"
+                                            early_val = f"{early_sec // 3600:02d}:{(early_sec % 3600) // 60:02d}"
                                     except:
                                         pass
-                            else:
-                                res_df.at[idx, 'Work Time'] = "08:00"
+                                        
+                                res_df.at[idx, 'Late'] = late_val
+                                res_df.at[idx, 'Early'] = early_val
+                        else:
+                            res_df.at[idx, 'Work Time'] = "00:00"
                     except:
                         pass
                 
+                # TÍNH TOÁN KẾT QUẢ CÔNG
                 w_time = str(res_df.at[idx, 'Work Time']).strip()
-                
                 cham_cong_val = ""
                 if w_time != '' and w_time != 'Bù vân tay':
                     try:
@@ -411,7 +419,6 @@ class TimekeepApp:
                         
                         if val != "" and val != "nan" and val != "None":
                             if col_name == 'Work Time':
-                                # Tô màu vàng nếu Work time bị thiếu hoặc là Bù vân tay
                                 if val != '08:00':
                                     cell.fill = fill_color
                             else:
