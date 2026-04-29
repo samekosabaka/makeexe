@@ -6,6 +6,116 @@ from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Border, Side
 import os
 
+# --- LỚP TÙY CHỈNH: DROP DOWN CÓ CHECKBOX VÀ THANH TÌM KIẾM ---
+class MultiSelect(tk.Frame):
+    def __init__(self, parent, title="Tất cả", width=15, command=None):
+        super().__init__(parent)
+        self.command = command
+        self.values = []
+        self.selected = []
+        self.display_var = tk.StringVar(value=title)
+        self.title_default = title
+        
+        self.btn = ttk.Button(self, textvariable=self.display_var, width=width, command=self.show_popup)
+        self.btn.pack(fill=tk.BOTH, expand=True)
+        
+    def set_values(self, values):
+        if set(self.values) != set(values):
+            self.values = values
+            # Giữ lại các tùy chọn cũ nếu nó vẫn còn tồn tại trong danh sách mới
+            self.selected = [s for s in self.selected if s in values]
+            self._update_display()
+            
+    def _update_display(self):
+        if not self.selected or len(self.selected) == len(self.values):
+            self.display_var.set(self.title_default)
+        elif len(self.selected) == 1:
+            self.display_var.set(self.selected[0])
+        else:
+            self.display_var.set(f"Đã chọn {len(self.selected)} mục")
+
+    def get(self):
+        return self.selected if self.selected else ["Tất cả"]
+        
+    def show_popup(self):
+        popup = tk.Toplevel(self)
+        popup.title(self.title_default)
+        popup.geometry("250x320")
+        popup.transient(self.winfo_toplevel())
+        popup.grab_set()
+        
+        # Căn chỉnh vị trí ngay dưới nút bấm
+        x = self.winfo_rootx()
+        y = self.winfo_rooty() + self.winfo_height()
+        popup.geometry(f"+{x}+{y}")
+        
+        # Thanh tìm kiếm (Gõ để lọc nhanh)
+        search_var = tk.StringVar()
+        search_entry = ttk.Entry(popup, textvariable=search_var)
+        search_entry.pack(fill=tk.X, padx=5, pady=5)
+        
+        # Khung chứa Checkbox có thanh cuộn
+        f_canvas = tk.Frame(popup)
+        f_canvas.pack(fill=tk.BOTH, expand=True, padx=5)
+        
+        canvas = tk.Canvas(f_canvas)
+        scroll = ttk.Scrollbar(f_canvas, orient="vertical", command=canvas.yview)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        canvas.configure(yscrollcommand=scroll.set)
+        
+        inner_frame = tk.Frame(canvas)
+        canvas_window = canvas.create_window((0,0), window=inner_frame, anchor='nw')
+        
+        def on_configure(event):
+            canvas.configure(scrollregion=canvas.bbox('all'))
+        inner_frame.bind('<Configure>', on_configure)
+        
+        def on_canvas_configure(event):
+            canvas.itemconfig(canvas_window, width=event.width)
+        canvas.bind('<Configure>', on_canvas_configure)
+        
+        cb_vars = {}
+        for val in self.values:
+            cb_vars[val] = tk.BooleanVar(value=(val in self.selected))
+            
+        def populate_list(*args):
+            for widget in inner_frame.winfo_children():
+                widget.destroy()
+            
+            search_term = search_var.get().lower()
+            
+            def toggle_all():
+                new_state = var_all.get()
+                for val, var in cb_vars.items():
+                    if search_term in str(val).lower():
+                        var.set(new_state)
+                        
+            var_all = tk.BooleanVar(value=False)
+            chk_all = tk.Checkbutton(inner_frame, text="-- Chọn / Bỏ chọn tất cả --", variable=var_all, command=toggle_all, fg="blue", font=("Arial", 8, "bold"))
+            chk_all.pack(anchor='w', pady=(0, 5))
+            
+            for val in self.values:
+                if search_term in str(val).lower():
+                    chk = tk.Checkbutton(inner_frame, text=str(val), variable=cb_vars[val])
+                    chk.pack(anchor='w')
+                    
+        search_var.trace("w", populate_list)
+        populate_list()
+        
+        def on_confirm():
+            self.selected = [val for val, var in cb_vars.items() if var.get()]
+            self._update_display()
+            popup.destroy()
+            if self.command:
+                self.command() # Tự động chạy apply_filter sau khi xác nhận
+        
+        btn_ok = ttk.Button(popup, text="Xác nhận", command=on_confirm)
+        btn_ok.pack(pady=5, fill=tk.X, padx=10)
+        
+        search_entry.focus_set()
+
+
 class TimekeepApp:
     def __init__(self, root):
         self.root = root
@@ -59,9 +169,8 @@ class TimekeepApp:
         frame_hints = tk.Frame(frame_top)
         frame_hints.grid(row=0, column=4, rowspan=2, padx=10, sticky="w")
         tk.Label(frame_hints, text="(MẸO: Nhấp đúp chuột vào cột Timetable để sửa tên Ca và tính lại dữ liệu)", fg="red", font=("Arial", 9, "italic")).pack(anchor="w")
-        tk.Label(frame_hints, text="(HƯỚNG DẪN: Hãy mở file ZKT bằng Excel và chọn Save As thành định dạng .xlsx chuẩn)", fg="blue", font=("Arial", 9, "italic")).pack(anchor="w")
+        tk.Label(frame_hints, text="(HƯỚNG DẪN: Hãy mở file ZKT bằng Excel và chọn Save As thành định dạng .xlsx chuẩn)", fg="red", font=("Arial", 9, "italic")).pack(anchor="w")
 
-        # --- NÂNG CẤP: KHU VỰC CÀI ĐẶT GIAO DIỆN & TRONG SUỐT ---
         frame_settings = tk.Frame(frame_top)
         frame_settings.grid(row=0, column=5, rowspan=2, padx=20, sticky="e")
         
@@ -78,12 +187,13 @@ class TimekeepApp:
         frame_filter = tk.Frame(self.root, pady=5)
         frame_filter.pack(fill=tk.X, padx=10)
         
+        # SỬ DỤNG CLASS ĐA CHỌN MỚI TẠO CHO NGÀY VÀ MSNV
         tk.Label(frame_filter, text="Ngày:", font=("Arial", 9, "bold")).pack(side=tk.LEFT, padx=(5, 2))
-        self.cb_date = ttk.Combobox(frame_filter, state="readonly", width=12, font=("Arial", 9))
+        self.cb_date = MultiSelect(frame_filter, title="Tất cả Ngày", width=15, command=self.apply_filter)
         self.cb_date.pack(side=tk.LEFT, padx=2)
         
         tk.Label(frame_filter, text="MSNV:", font=("Arial", 9, "bold")).pack(side=tk.LEFT, padx=(10, 2))
-        self.cb_msnv = ttk.Combobox(frame_filter, state="readonly", width=10, font=("Arial", 9))
+        self.cb_msnv = MultiSelect(frame_filter, title="Tất cả MSNV", width=15, command=self.apply_filter)
         self.cb_msnv.pack(side=tk.LEFT, padx=2)
         
         tk.Label(frame_filter, text="Ca làm:", font=("Arial", 9, "bold")).pack(side=tk.LEFT, padx=(10, 2))
@@ -95,11 +205,10 @@ class TimekeepApp:
         self.cb_worktime.pack(side=tk.LEFT, padx=2)
         self.cb_worktime.current(0)
         
-        btn_filter = tk.Button(frame_filter, text="Lọc Dữ Liệu", command=self.apply_filter, bg="#ffcc00", font=("Arial", 9, "bold"))
+        btn_filter = tk.Button(frame_filter, text="↻ Xóa Lọc / Tải Lại", command=self.reset_filter, bg="#ffcc00", font=("Arial", 9, "bold"))
         btn_filter.pack(side=tk.LEFT, padx=(15, 5))
 
-        self.cb_date.bind("<<ComboboxSelected>>", self.apply_filter)
-        self.cb_msnv.bind("<<ComboboxSelected>>", self.apply_filter)
+        # Ràng buộc chạy lọc khi chọn Ca và WorkTime bằng Combobox chuẩn
         self.cb_timetable.bind("<<ComboboxSelected>>", self.apply_filter)
         self.cb_worktime.bind("<<ComboboxSelected>>", self.apply_filter)
 
@@ -125,10 +234,8 @@ class TimekeepApp:
         frame_bottom.pack(fill=tk.X)
         tk.Button(frame_bottom, text="Xuất dữ liệu ra Excel", command=self.export_excel, bg="lightgreen", font=("Arial", 12, "bold")).pack(pady=5)
         
-        # Khởi tạo màu mặc định
         self.apply_theme("Sáng")
 
-    # --- LOGIC GIAO DIỆN & TRONG SUỐT ---
     def change_opacity(self, val):
         self.root.attributes('-alpha', float(val))
 
@@ -158,7 +265,7 @@ class TimekeepApp:
             fg_main = "#00ffcc"
             bg_btn = "#222222"
             bg_lbl = "#1a1a1a"
-            self.opacity_slider.set(0.85) # Đặt độ trong suốt mặc định cho chế độ này
+            self.opacity_slider.set(0.85)
             self.root.attributes('-alpha', 0.85)
 
         def _update_colors(widget):
@@ -175,9 +282,9 @@ class TimekeepApp:
                             widget.configure(bg=bg_main) 
                         else:
                             widget.configure(bg=bg_main, fg=fg_main)
-                elif wtype == 'Button':
-                    c_text = widget.cget('text')
-                    if c_text in ["Bắt đầu Xử lý", "Xuất dữ liệu ra Excel", "Lọc Dữ Liệu"]:
+                elif wtype == 'Button' or 'Button' in wtype: # Hỗ trợ luôn ttk.Button
+                    c_text = widget.cget('text') if hasattr(widget, 'cget') else ''
+                    if c_text in ["Bắt đầu Xử lý", "Xuất dữ liệu ra Excel", "↻ Xóa Lọc / Tải Lại"]:
                         pass 
                     else:
                         widget.configure(bg=bg_btn, fg=fg_main)
@@ -194,38 +301,39 @@ class TimekeepApp:
         self.tree.tag_configure('oddrow', background=bg_lbl, foreground=fg_main)
         self.tree.tag_configure('evenrow', background=bg_main, foreground=fg_main)
 
-
     def select_file1(self):
         self.file1_path = filedialog.askopenfilename(filetypes=[("Excel & CSV Files", "*.xlsx *.xls *.csv")])
         if self.file1_path:
+            # --- KHẮC PHỤC LỖI CONVERT FILE FAKE XLS CỦA ZKTECO ---
             if self.file1_path.lower().endswith('.xls'):
                 try:
                     pd.read_excel(self.file1_path)
-                except ValueError as ve:
-                    if "Excel file format cannot be determined" in str(ve):
-                        try:
-                            encodings = ['utf-8', 'utf-8-sig', 'cp1258', 'latin1', 'utf-16']
-                            df_temp = None
-                            for enc in encodings:
-                                try:
-                                    df_temp = pd.read_csv(self.file1_path, sep=None, engine='python', encoding=enc, dtype=str)
+                except Exception:
+                    # Nếu báo lỗi (bất cứ lỗi gì từ read_excel), chạy bộ chuyển đổi Text -> XLSX
+                    converted = False
+                    df_temp = None
+                    # Bộ quét cường độ cao (Thử tất cả các chuẩn format)
+                    encodings = ['utf-8', 'utf-8-sig', 'utf-16', 'utf-16-le', 'cp1258', 'latin1']
+                    seps = ['\t', ',', ';'] 
+                    
+                    for enc in encodings:
+                        for sep in seps:
+                            try:
+                                df_temp = pd.read_csv(self.file1_path, sep=sep, encoding=enc, dtype=str)
+                                if len(df_temp.columns) > 3: # Đảm bảo file cắt cột thành công
+                                    converted = True
                                     break
-                                except:
-                                    continue
-                            if df_temp is None:
-                                for enc in encodings:
-                                    try:
-                                        df_temp = pd.read_csv(self.file1_path, sep='\t', engine='python', encoding=enc, dtype=str)
-                                        break
-                                    except:
-                                        continue
-                            if df_temp is not None:
-                                new_path = self.file1_path + "x"
-                                df_temp.to_excel(new_path, index=False)
-                                self.file1_path = new_path
-                                messagebox.showinfo("Tự động sửa lỗi", "Phát hiện File ZKT là định dạng giả mạo (CSV).\nPhần mềm đã tự động chuyển đổi thành file chuẩn (.xlsx) và nạp vào hệ thống!")
-                        except Exception:
-                            pass 
+                            except: pass
+                        if converted: break
+                    
+                    if converted and df_temp is not None:
+                        new_path = self.file1_path + "x" # Chuyển thành đuôi .xlsx
+                        df_temp.to_excel(new_path, index=False)
+                        self.file1_path = new_path
+                        messagebox.showinfo("Tự động sửa lỗi", "Phát hiện File ZKT là định dạng giả mạo (CSV).\nPhần mềm đã tự động chuyển đổi thành file chuẩn (.xlsx) và nạp vào hệ thống!")
+                    else:
+                        messagebox.showwarning("Cảnh báo", "File ZKTeco quá cũ hoặc bị lỗi nặng, vui lòng mở file lên và chọn Save As thành .xlsx thủ công.")
+
             self.lbl_file1.config(text=self.file1_path.split('/')[-1])
 
     def select_file2(self):
@@ -290,25 +398,36 @@ class TimekeepApp:
                     self.df_result.at[idx, 'Timetable'] = new_val
                     self.process_single_row(idx, force_recalc=True)
                     self.tree.item(item_id, values=list(self.df_result.loc[idx]))
-                    self.apply_filter()
-                    
+                    # Cập nhật danh sách thả xuống
+                    unique_timetables = sorted([str(t) for t in self.df_result['Timetable'].unique() if str(t).strip() != '' and str(t) != 'nan'])
+                    self.cb_timetable['values'] = ["Tất cả"] + unique_timetables
             cb.bind("<Return>", save_edit)
             cb.bind("<FocusOut>", save_edit)
+
+    def reset_filter(self):
+        if self.df_result is None or self.df_result.empty: return
+        self.cb_date.selected = []
+        self.cb_msnv.selected = []
+        self.cb_timetable.current(0)
+        self.cb_worktime.current(0)
+        self.apply_filter()
 
     def apply_filter(self, event=None):
         if self.df_result is None or self.df_result.empty: return
         
-        selected_date = self.cb_date.get()
-        selected_msnv = self.cb_msnv.get()
+        selected_dates = self.cb_date.get()
+        selected_msnvs = self.cb_msnv.get()
         selected_timetable = self.cb_timetable.get()
         selected_worktime = self.cb_worktime.get()
         
         df_to_show = self.df_result.copy()
         
-        if selected_date != "Tất cả" and selected_date != "":
-            df_to_show = df_to_show[df_to_show['Date'] == selected_date]
-        if selected_msnv != "Tất cả" and selected_msnv != "":
-            df_to_show = df_to_show[df_to_show['MSNV'] == selected_msnv]
+        # 1. THI HÀNH LỌC DỮ LIỆU
+        if selected_dates != ["Tất cả"]:
+            df_to_show = df_to_show[df_to_show['Date'].isin(selected_dates)]
+        if selected_msnvs != ["Tất cả"]:
+            df_to_show = df_to_show[df_to_show['MSNV'].isin(selected_msnvs)]
+            
         if selected_timetable != "Tất cả" and selected_timetable != "":
             df_to_show = df_to_show[df_to_show['Timetable'] == selected_timetable]
         if selected_worktime == "Bù vân tay":
@@ -316,23 +435,28 @@ class TimekeepApp:
             
         self.display_data(df_to_show)
 
+        # 2. CẬP NHẬT CASCADING OPTIONS (LOẠI BỎ RÁC Ở CÁC DROP DOWNS)
         def get_dynamic_opts(col_name):
             df_f = self.df_result.copy()
-            if col_name != 'Date' and selected_date not in ["Tất cả", ""]:
-                df_f = df_f[df_f['Date'] == selected_date]
-            if col_name != 'MSNV' and selected_msnv not in ["Tất cả", ""]:
-                df_f = df_f[df_f['MSNV'] == selected_msnv]
+            if col_name != 'Date' and selected_dates != ["Tất cả"]:
+                df_f = df_f[df_f['Date'].isin(selected_dates)]
+            if col_name != 'MSNV' and selected_msnvs != ["Tất cả"]:
+                df_f = df_f[df_f['MSNV'].isin(selected_msnvs)]
             if col_name != 'Timetable' and selected_timetable not in ["Tất cả", ""]:
                 df_f = df_f[df_f['Timetable'] == selected_timetable]
             if col_name != 'Work Time' and selected_worktime == "Bù vân tay":
                 df_f = df_f[df_f['Work Time'] == "Bù vân tay"]
                 
-            opts = sorted([str(x) for x in df_f[col_name].unique() if str(x).strip() != '' and str(x) != 'nan'])
-            return ["Tất cả"] + opts
+            return sorted([str(x) for x in df_f[col_name].unique() if str(x).strip() != '' and str(x) != 'nan'])
 
-        self.cb_date['values'] = get_dynamic_opts('Date')
-        self.cb_msnv['values'] = get_dynamic_opts('MSNV')
-        self.cb_timetable['values'] = get_dynamic_opts('Timetable')
+        self.cb_date.set_values(get_dynamic_opts('Date'))
+        self.cb_msnv.set_values(get_dynamic_opts('MSNV'))
+        
+        opts_timetable = ["Tất cả"] + get_dynamic_opts('Timetable')
+        self.cb_timetable['values'] = opts_timetable
+        if selected_timetable not in opts_timetable:
+            self.cb_timetable.current(0)
+
 
     def process_data(self):
         if not self.file1_path or not self.file2_path:
@@ -375,13 +499,12 @@ class TimekeepApp:
             for idx in self.df_result.index:
                 self.process_single_row(idx, force_recalc=False)
 
+            # Cấp phát list cho dropdown Date & MSNV
             unique_dates = sorted([str(d) for d in self.df_result['Date'].unique() if str(d).strip() != '' and str(d) != 'nan'])
-            self.cb_date['values'] = ["Tất cả"] + unique_dates
-            self.cb_date.current(1) if len(unique_dates) > 0 else self.cb_date.current(0)
+            self.cb_date.set_values(unique_dates)
             
             unique_msnvs = sorted([str(m) for m in self.df_result['MSNV'].unique() if str(m).strip() != '' and str(m) != 'nan'])
-            self.cb_msnv['values'] = ["Tất cả"] + unique_msnvs
-            self.cb_msnv.current(0)
+            self.cb_msnv.set_values(unique_msnvs)
             
             unique_timetables = sorted([str(t) for t in self.df_result['Timetable'].unique() if str(t).strip() != '' and str(t) != 'nan'])
             self.cb_timetable['values'] = ["Tất cả"] + unique_timetables
