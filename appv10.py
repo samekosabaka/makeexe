@@ -4,6 +4,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 from openpyxl import load_workbook, Workbook
 from openpyxl.styles import PatternFill, Border, Side, Alignment, Font
+from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.utils import get_column_letter 
 import os
 import sys
@@ -381,6 +382,23 @@ class TimekeepApp:
                 messagebox.showerror("Lỗi dữ liệu", f"File đầu vào thiếu các cột sau:\n{', '.join(missing)}")
                 return
 
+            # TẠO TỪ ĐIỂN TRA CỨU CA LÀM VIỆC CỦA NGÀY HÔM SAU
+            shift_dict = {}
+            for idx, row in df.iterrows():
+                m_val = str(row.get('Mã số nhân viên', '')).strip()
+                d_val = row.get('Ngày')
+                s_val = str(row.get('Số ca làm việc trong ngày', '')).upper()
+                
+                if m_val and pd.notna(d_val):
+                    try:
+                        if isinstance(d_val, datetime):
+                            d_obj = d_val.date()
+                        else:
+                            d_obj = pd.to_datetime(str(d_val).split(' ')[0], dayfirst=True).date()
+                        shift_dict[(m_val, d_obj)] = s_val
+                    except:
+                        pass
+
             # Lọc chỉ dòng "phải"
             df = df[df['Bất thường chấm công'].astype(str).str.strip().str.lower() == 'phải'].copy()
 
@@ -412,7 +430,6 @@ class TimekeepApp:
                 if mins < 30: return dt.replace(minute=0, second=0, microsecond=0)
                 return dt.replace(minute=30, second=0, microsecond=0)
 
-            # --- HÀM CẮT GIÂY BẰNG STRING MANIPULATION (CHÍNH XÁC 100% ĐỊNH DẠNG GỐC) ---
             def cut_seconds(t_val):
                 if pd.isna(t_val): return ""
                 s = str(t_val).strip()
@@ -431,11 +448,9 @@ class TimekeepApp:
                 t_in_raw = row['Thời gian quẹt thẻ lên ca']
                 t_out_raw = row['Thời gian quẹt thẻ xuống ca']
 
-                # Lấy chuỗi thô và tự tay cắt bỏ giây
                 t_in_str = cut_seconds(t_in_raw)
                 t_out_str = cut_seconds(t_out_raw)
 
-                # Ép ngày nội bộ để tính toán trễ/sớm (Tắt dayfirst để ngăn lỗi đảo ngày)
                 t_in_dt = None
                 if t_in_str:
                     try: t_in_dt = pd.to_datetime(t_in_str)
@@ -446,7 +461,6 @@ class TimekeepApp:
                     try: t_out_dt = pd.to_datetime(t_out_str)
                     except: pass
 
-                # Định vị Ngày thực sự để kiểm tra Ca làm việc
                 true_date = None
                 if t_in_dt:
                     true_date = t_in_dt.date()
@@ -458,7 +472,7 @@ class TimekeepApp:
                 else:
                     try:
                         if isinstance(raw_date, datetime): true_date = raw_date.date()
-                        else: true_date = pd.to_datetime(str(raw_date).split(' ')[0]).date()
+                        else: true_date = pd.to_datetime(str(raw_date).split(' ')[0], dayfirst=True).date()
                     except:
                         pass
                         
@@ -489,15 +503,27 @@ class TimekeepApp:
                         'IsExtra': is_extra
                     })
 
-                # LUỒNG LOGIC TÍNH PHÉP VỚI CHUỖI GỐC
-                if is_empty_in and is_empty_out:
+                # --- LUỒNG LOGIC TÍNH PHÉP CÓ TÍCH HỢP LOOKAHEAD ---
+                if (is_empty_in and not is_empty_out) or (not is_empty_in and is_empty_out):
+                    # KỊCH BẢN B (Mất 1 vân tay)
+                    curr_shift = str(shift_name).upper()
+                    is_target_hc = "HC" in curr_shift or "HÀNH CHÍNH" in curr_shift
+                    
+                    next_date = true_date + timedelta(days=1)
+                    next_shift = shift_dict.get((msnv, next_date), "")
+                    is_next_ca3 = "CA 3" in next_shift or "ĐÊM" in next_shift
+                    
+                    if is_target_hc and is_next_ca3:
+                        # Đi làm Hành chính nhưng hôm sau quẹt Ca Đêm -> Hủy lỗi, cho Phép năm trọn ngày HC
+                        add_record('ACTR PHÉP NĂM', shift_start, shift_end)
+                    else:
+                        if is_empty_in and not is_empty_out:
+                            add_record('ACTR VIỆC RIÊNG', "Kiểm tra xếp ca/Bù vân tay", t_out_str)
+                        else:
+                            add_record('ACTR VIỆC RIÊNG', t_in_str, "Kiểm tra xếp ca/Bù vân tay")
+                            
+                elif is_empty_in and is_empty_out:
                     add_record('ACTR PHÉP NĂM', shift_start, shift_end)
-                    
-                elif is_empty_in and not is_empty_out:
-                    add_record('ACTR VIỆC RIÊNG', "Kiểm tra xếp ca/Bù vân tay", t_out_str)
-                    
-                elif not is_empty_in and is_empty_out:
-                    add_record('ACTR VIỆC RIÊNG', t_in_str, "Kiểm tra xếp ca/Bù vân tay")
                     
                 else:
                     is_late = t_in_dt > shift_start
@@ -511,7 +537,6 @@ class TimekeepApp:
                     elif is_early:
                         add_record('ACTR VIỆC RIÊNG', floor_30(t_out_dt), shift_end)
                     else:
-                        # Bê nguyên xi chuỗi chữ gốc không đụng chạm
                         add_record('ACTR VIỆC RIÊNG', t_in_str, t_out_str)
 
             self.df_xp_result = pd.DataFrame(new_rows)
@@ -534,7 +559,7 @@ class TimekeepApp:
                 gui_row = [row[h] for h in gui_headers]
                 self.tree_xp.insert("", "end", iid=str(index), values=gui_row, tags=(tag,))
 
-            messagebox.showinfo("Thành công", f"Đã lọc và xử lý xong {len(self.df_xp_result)} trường hợp xin phép (bao gồm tách dòng đi trễ/về sớm)!")
+            messagebox.showinfo("Thành công", f"Đã lọc và xử lý xong {len(self.df_xp_result)} trường hợp xin phép (Đã nâng cấp chuẩn đoán chuyển CA 3)!")
 
         except Exception as e:
             messagebox.showerror("Lỗi", f"Có lỗi xảy ra trong lúc xử lý:\n{str(e)}")
@@ -604,6 +629,17 @@ class TimekeepApp:
                 for c in range(1, ws.max_column + 1):
                     ws.cell(row=r, column=c).border = thin_border
             
+            # --- TẠO DROP DOWN LIST CHO CỘT LOẠI HÌNH XIN PHÉP (CỘT C) ---
+            max_r = ws.max_row
+            if max_r >= 2:
+                dv = DataValidation(
+                    type="list", 
+                    formula1='"ACTR VIỆC RIÊNG,ACTR PHÉP NĂM,ACTR NGHỈ BÙ,ACTR PHÉP BỆNH,ACTR KẾT HÔN,ACTR THAI SẢN NAM,ACTR PHÉP TANG"', 
+                    allow_blank=True
+                )
+                ws.add_data_validation(dv)
+                dv.add(f'C2:C{max_r}')
+            
             for idx, col in enumerate(ws.columns, 1):
                 max_length = 0
                 column_letter = get_column_letter(idx)
@@ -616,7 +652,7 @@ class TimekeepApp:
                 ws.column_dimensions[column_letter].width = max_length + 2
                 
             wb.save(save_path)
-            messagebox.showinfo("Thành công", "Đã xuất file Xin Phép thành công với Form tự động hoàn hảo!")
+            messagebox.showinfo("Thành công", "Đã xuất file Xin Phép thành công với Form tự động hoàn hảo (đã gắn menu Drop-down)!")
             
         except Exception as e:
             messagebox.showerror("Lỗi", f"Đã xảy ra lỗi khi lưu file:\n{str(e)}")
