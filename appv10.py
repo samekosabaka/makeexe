@@ -381,7 +381,6 @@ class TimekeepApp:
                 messagebox.showerror("Lỗi dữ liệu", f"File đầu vào thiếu các cột sau:\n{', '.join(missing)}")
                 return
 
-            # Lọc chỉ dòng "phải"
             df = df[df['Bất thường chấm công'].astype(str).str.strip().str.lower() == 'phải'].copy()
 
             def get_shift_times(base_date, shift_name):
@@ -412,42 +411,29 @@ class TimekeepApp:
                 if mins < 30: return dt.replace(minute=0, second=0, microsecond=0)
                 return dt.replace(minute=30, second=0, microsecond=0)
 
-            # --- HÀM TÁCH CHUỖI CẮT BỎ GIÂY TỪ RAW STRING ---
-            def parse_time_cut_seconds(t_val):
-                if pd.isna(t_val): return None, ""
-                t_str = str(t_val).strip()
-                if t_str in ['', 'nan', 'NaT', 'None']: return None, ""
-                
-                parts = t_str.split(' ')
-                if len(parts) == 2:
-                    d_part = parts[0]
-                    time_part = parts[1].split(':')
-                    if len(time_part) >= 2:
-                        t_str_cut = f"{d_part} {time_part[0]}:{time_part[1]}"
-                    else:
-                        t_str_cut = t_str
-                else:
-                    t_str_cut = t_str
-                    
-                try:
-                    dt_obj = pd.to_datetime(t_str_cut)
-                    # Giữ nguyên số và thay dấu - thành /
-                    return dt_obj, t_str_cut.replace('-', '/')
-                except:
-                    return None, ""
-
             new_rows = []
             
             for idx, row in df.iterrows():
                 msnv = str(row['Mã số nhân viên']).strip()
                 raw_date = row['Ngày']
                 shift_name = row['Số ca làm việc trong ngày']
-                
-                # 1. ĐỌC TRỰC TIẾP VÀ CẮT GIÂY BẰNG STRING MANIPULATION
-                t_in_dt, t_in_str = parse_time_cut_seconds(row['Thời gian quẹt thẻ lên ca'])
-                t_out_dt, t_out_str = parse_time_cut_seconds(row['Thời gian quẹt thẻ xuống ca'])
+                t_in_raw = row['Thời gian quẹt thẻ lên ca']
+                t_out_raw = row['Thời gian quẹt thẻ xuống ca']
 
-                # 2. XÁC ĐỊNH NGÀY THỰC SỰ ĐỂ SO SÁNH CA
+                t_in_dt = None
+                if pd.notna(t_in_raw) and str(t_in_raw).strip() not in ['', 'nan', 'None']:
+                    if isinstance(t_in_raw, datetime): t_in_dt = t_in_raw
+                    else: 
+                        try: t_in_dt = pd.to_datetime(str(t_in_raw).strip())
+                        except: pass
+                        
+                t_out_dt = None
+                if pd.notna(t_out_raw) and str(t_out_raw).strip() not in ['', 'nan', 'None']:
+                    if isinstance(t_out_raw, datetime): t_out_dt = t_out_raw
+                    else: 
+                        try: t_out_dt = pd.to_datetime(str(t_out_raw).strip())
+                        except: pass
+
                 true_date = None
                 if t_in_dt:
                     true_date = t_in_dt.date()
@@ -474,9 +460,10 @@ class TimekeepApp:
                 if date_out in ['nan', 'NaT', 'None']: date_out = ""
                 if date_out.endswith(" 00:00:00"): date_out = date_out.replace(" 00:00:00", "")
 
+                # --- SỬ DỤNG FORMAT MỚI BẰNG DẤU "-" (YYYY-MM-DD HH:MM) ---
                 def add_record(loai_phep, start_val, end_val, is_extra=False):
-                    if isinstance(start_val, datetime): start_val = start_val.strftime("%Y/%m/%d %H:%M")
-                    if isinstance(end_val, datetime): end_val = end_val.strftime("%Y/%m/%d %H:%M")
+                    if isinstance(start_val, datetime): start_val = start_val.strftime("%Y-%m-%d %H:%M")
+                    if isinstance(end_val, datetime): end_val = end_val.strftime("%Y-%m-%d %H:%M")
                     new_rows.append({
                         'MSNV': msnv,
                         'Ngày': date_out,
@@ -487,17 +474,14 @@ class TimekeepApp:
                         'IsExtra': is_extra
                     })
 
-                # LUỒNG LOGIC TÍNH PHÉP CHUẨN XÁC
                 if is_empty_in and is_empty_out:
                     add_record('ACTR PHÉP NĂM', shift_start, shift_end)
                     
                 elif is_empty_in and not is_empty_out:
-                    # Bê nguyên t_out_str (đã cắt giây) vào output
-                    add_record('ACTR VIỆC RIÊNG', "Kiểm tra xếp ca/Bù vân tay", t_out_str)
+                    add_record('ACTR VIỆC RIÊNG', "Kiểm tra xếp ca/Bù vân tay", t_out_dt)
                     
                 elif not is_empty_in and is_empty_out:
-                    # Bê nguyên t_in_str (đã cắt giây) vào output
-                    add_record('ACTR VIỆC RIÊNG', t_in_str, "Kiểm tra xếp ca/Bù vân tay")
+                    add_record('ACTR VIỆC RIÊNG', t_in_dt, "Kiểm tra xếp ca/Bù vân tay")
                     
                 else:
                     is_late = t_in_dt > shift_start
@@ -511,7 +495,7 @@ class TimekeepApp:
                     elif is_early:
                         add_record('ACTR VIỆC RIÊNG', floor_30(t_out_dt), shift_end)
                     else:
-                        add_record('ACTR VIỆC RIÊNG', t_in_str, t_out_str)
+                        add_record('ACTR VIỆC RIÊNG', t_in_dt, t_out_dt)
 
             self.df_xp_result = pd.DataFrame(new_rows)
             
@@ -533,7 +517,7 @@ class TimekeepApp:
                 gui_row = [row[h] for h in gui_headers]
                 self.tree_xp.insert("", "end", iid=str(index), values=gui_row, tags=(tag,))
 
-            messagebox.showinfo("Thành công", f"Đã lọc và xử lý xong {len(self.df_xp_result)} trường hợp xin phép!")
+            messagebox.showinfo("Thành công", f"Đã lọc và xử lý xong {len(self.df_xp_result)} trường hợp xin phép (bao gồm tách dòng đi trễ/về sớm)!")
 
         except Exception as e:
             messagebox.showerror("Lỗi", f"Có lỗi xảy ra trong lúc xử lý:\n{str(e)}")
@@ -586,7 +570,6 @@ class TimekeepApp:
                 
                 for c_idx, val in enumerate(col_data):
                     val_str = str(val).strip()
-                    # TRẢ VỀ Ô TRỐNG HOÀN TOÀN KHI KHÔNG CÓ DỮ LIỆU
                     if pd.isna(val) or val_str in ['nan', 'None', 'NaT', '']:
                         final_val = None
                     else:
@@ -1139,7 +1122,6 @@ class TimekeepApp:
                 df_export = self.df_result.copy()
                 import numpy as np
                 
-                # Ép giá trị trống về None để tránh bị hiểu lầm là khoảng trắng
                 for col in df_export.columns:
                     df_export[col] = df_export[col].apply(lambda x: None if str(x).strip() in ['nan', 'None', 'NaT', ''] else x)
                 
@@ -1266,7 +1248,6 @@ class TimekeepApp:
                     record = df_emp[df_emp['Date'] == target_date_str]
                     
                     if not record.empty:
-                        # --- TRẢ VỀ Ô TRỐNG HOÀN TOÀN ---
                         kq_cong_raw = record.iloc[0]['Kết Quả Công']
                         kq_val = None
                         if pd.isna(kq_cong_raw) or str(kq_cong_raw).strip() in ['nan', 'None', 'NaT', '']:
@@ -1322,47 +1303,6 @@ def show_login():
         pass
 
     root = tk.Tk()
-    
-    # root.withdraw()
-    # login_win = tk.Toplevel(root)
-    # login_win.title("iamhisu - Đăng nhập")
-    # login_win.geometry("300x160")
-    # login_win.resizable(False, False)
-    # 
-    # try:
-    #     icon_path = resource_path('noface.ico')
-    #     login_win.iconbitmap(icon_path)
-    # except Exception:
-    #     pass
-    # 
-    # login_win.update_idletasks()
-    # width = 300
-    # height = 160
-    # x = (login_win.winfo_screenwidth() // 2) - (width // 2)
-    # y = (login_win.winfo_screenheight() // 2) - (height // 2)
-    # login_win.geometry('{}x{}+{}+{}'.format(width, height, x, y))
-    # 
-    # login_win.protocol("WM_DELETE_WINDOW", root.destroy)
-    # 
-    # tk.Label(login_win, text="ID đăng nhập:", font=("Arial", 10)).pack(pady=(15, 5))
-    # entry_id = tk.Entry(login_win, font=("Arial", 10), justify="center")
-    # entry_id.pack()
-    # 
-    # tk.Label(login_win, text="Mật khẩu:", font=("Arial", 10)).pack(pady=(5, 5))
-    # entry_pass = tk.Entry(login_win, show="*", font=("Arial", 10), justify="center")
-    # entry_pass.pack()
-    # 
-    # def check_login(event=None):
-    #     if entry_id.get() == "admin" and entry_pass.get() == "3042":
-    #         login_win.destroy()
-    #         root.deiconify()
-    #         app = TimekeepApp(root)
-    #     else:
-    #         messagebox.showerror("Lỗi", "Sai ID hoặc mật khẩu!", parent=login_win)
-    # 
-    # login_win.bind('<Return>', check_login)
-    # tk.Button(login_win, text="Đăng nhập", command=check_login, bg="lightblue", font=("Arial", 10, "bold")).pack(pady=10)
-    
     app = TimekeepApp(root)
     root.mainloop()
 
