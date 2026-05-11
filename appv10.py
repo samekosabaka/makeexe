@@ -381,6 +381,7 @@ class TimekeepApp:
                 messagebox.showerror("Lỗi dữ liệu", f"File đầu vào thiếu các cột sau:\n{', '.join(missing)}")
                 return
 
+            # Lọc chỉ dòng "phải"
             df = df[df['Bất thường chấm công'].astype(str).str.strip().str.lower() == 'phải'].copy()
 
             def get_shift_times(base_date, shift_name):
@@ -411,6 +412,16 @@ class TimekeepApp:
                 if mins < 30: return dt.replace(minute=0, second=0, microsecond=0)
                 return dt.replace(minute=30, second=0, microsecond=0)
 
+            # --- HÀM CẮT GIÂY BẰNG STRING MANIPULATION (CHÍNH XÁC 100% ĐỊNH DẠNG GỐC) ---
+            def cut_seconds(t_val):
+                if pd.isna(t_val): return ""
+                s = str(t_val).strip()
+                if s in ['nan', 'None', 'NaT', '']: return ""
+                parts = s.split(':')
+                if len(parts) >= 3:
+                    return f"{parts[0]}:{parts[1]}"
+                return s
+
             new_rows = []
             
             for idx, row in df.iterrows():
@@ -420,20 +431,22 @@ class TimekeepApp:
                 t_in_raw = row['Thời gian quẹt thẻ lên ca']
                 t_out_raw = row['Thời gian quẹt thẻ xuống ca']
 
+                # Lấy chuỗi thô và tự tay cắt bỏ giây
+                t_in_str = cut_seconds(t_in_raw)
+                t_out_str = cut_seconds(t_out_raw)
+
+                # Ép ngày nội bộ để tính toán trễ/sớm (Tắt dayfirst để ngăn lỗi đảo ngày)
                 t_in_dt = None
-                if pd.notna(t_in_raw) and str(t_in_raw).strip() not in ['', 'nan', 'None']:
-                    if isinstance(t_in_raw, datetime): t_in_dt = t_in_raw
-                    else: 
-                        try: t_in_dt = pd.to_datetime(str(t_in_raw).strip())
-                        except: pass
+                if t_in_str:
+                    try: t_in_dt = pd.to_datetime(t_in_str)
+                    except: pass
                         
                 t_out_dt = None
-                if pd.notna(t_out_raw) and str(t_out_raw).strip() not in ['', 'nan', 'None']:
-                    if isinstance(t_out_raw, datetime): t_out_dt = t_out_raw
-                    else: 
-                        try: t_out_dt = pd.to_datetime(str(t_out_raw).strip())
-                        except: pass
+                if t_out_str:
+                    try: t_out_dt = pd.to_datetime(t_out_str)
+                    except: pass
 
+                # Định vị Ngày thực sự để kiểm tra Ca làm việc
                 true_date = None
                 if t_in_dt:
                     true_date = t_in_dt.date()
@@ -445,10 +458,13 @@ class TimekeepApp:
                 else:
                     try:
                         if isinstance(raw_date, datetime): true_date = raw_date.date()
-                        else: true_date = pd.to_datetime(str(raw_date).split(' ')[0], dayfirst=True).date()
+                        else: true_date = pd.to_datetime(str(raw_date).split(' ')[0]).date()
                     except:
-                        continue 
+                        pass
                         
+                if not true_date:
+                    continue
+
                 shift_start, shift_end = get_shift_times(true_date, shift_name)
                 if not shift_start or not shift_end:
                     continue
@@ -460,7 +476,6 @@ class TimekeepApp:
                 if date_out in ['nan', 'NaT', 'None']: date_out = ""
                 if date_out.endswith(" 00:00:00"): date_out = date_out.replace(" 00:00:00", "")
 
-                # --- SỬ DỤNG FORMAT MỚI BẰNG DẤU "-" (YYYY-MM-DD HH:MM) ---
                 def add_record(loai_phep, start_val, end_val, is_extra=False):
                     if isinstance(start_val, datetime): start_val = start_val.strftime("%Y-%m-%d %H:%M")
                     if isinstance(end_val, datetime): end_val = end_val.strftime("%Y-%m-%d %H:%M")
@@ -474,14 +489,15 @@ class TimekeepApp:
                         'IsExtra': is_extra
                     })
 
+                # LUỒNG LOGIC TÍNH PHÉP VỚI CHUỖI GỐC
                 if is_empty_in and is_empty_out:
                     add_record('ACTR PHÉP NĂM', shift_start, shift_end)
                     
                 elif is_empty_in and not is_empty_out:
-                    add_record('ACTR VIỆC RIÊNG', "Kiểm tra xếp ca/Bù vân tay", t_out_dt)
+                    add_record('ACTR VIỆC RIÊNG', "Kiểm tra xếp ca/Bù vân tay", t_out_str)
                     
                 elif not is_empty_in and is_empty_out:
-                    add_record('ACTR VIỆC RIÊNG', t_in_dt, "Kiểm tra xếp ca/Bù vân tay")
+                    add_record('ACTR VIỆC RIÊNG', t_in_str, "Kiểm tra xếp ca/Bù vân tay")
                     
                 else:
                     is_late = t_in_dt > shift_start
@@ -495,7 +511,8 @@ class TimekeepApp:
                     elif is_early:
                         add_record('ACTR VIỆC RIÊNG', floor_30(t_out_dt), shift_end)
                     else:
-                        add_record('ACTR VIỆC RIÊNG', t_in_dt, t_out_dt)
+                        # Bê nguyên xi chuỗi chữ gốc không đụng chạm
+                        add_record('ACTR VIỆC RIÊNG', t_in_str, t_out_str)
 
             self.df_xp_result = pd.DataFrame(new_rows)
             
