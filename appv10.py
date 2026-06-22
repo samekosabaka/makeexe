@@ -10,6 +10,9 @@ CONFIG_FILE = os.path.join(APP_DIR, "config.json")
 # --- HỆ MÀU DẠ QUANG DỄ NHÌN ---
 COLORS = ["#00ff00", "#00ffff", "#ffff00", "#ff9900", "#ff00ff", "#ffffff", "#00bfff", "#ff3333"]
 
+# --- FONT CHỮ MỚI ---
+OTP_FONT = ("Segoe UI", 28, "bold")
+
 # Biến toàn cục
 SECRET = ""
 LOCKED = False
@@ -17,7 +20,8 @@ AUTO_START = False
 COLOR_INDEX = 0
 UNLOCK_PASSWORD = "2026" 
 IS_MINIMIZED = False
-tray_icon = None  # Quản lý icon dưới góc màn hình
+tray_icon = None
+last_remaining = -1
 
 def load_config():
     global SECRET, LOCKED, AUTO_START, COLOR_INDEX
@@ -53,81 +57,130 @@ def set_autostart(enable):
 
 load_config()
 
-def get_totp(secret):
-    if not secret: return "NO KEY"
+# --- VÒNG LẶP GIAO DIỆN CHÍNH (Chạy mỗi 100ms để Animation mượt) ---
+def update_ui_loop():
+    global last_remaining, tray_icon
+    
+    if not SECRET:
+        label_otp.config(text="NO KEY", font=("Segoe UI", 20, "bold"))
+        progress_canvas.itemconfig(progress_bar, fill="black")
+        root.after(100, update_ui_loop)
+        return
+
+    # 1. Tính toán OTP
     try:
-        secret = secret.replace(' ', '').upper()
-        secret += '=' * ((8 - len(secret) % 8) % 8)
-        key = base64.b32decode(secret)
-        msg = struct.pack(">Q", int(time.time() // 30))
+        secret_cl = SECRET.replace(' ', '').upper()
+        secret_cl += '=' * ((8 - len(secret_cl) % 8) % 8)
+        key = base64.b32decode(secret_cl)
+        
+        current_time = time.time()
+        msg = struct.pack(">Q", int(current_time // 30))
         h = hmac.new(key, msg, hashlib.sha1).digest()
         o = h[19] & 15
-        h = (struct.unpack(">I", h[o:o+4])[0] & 0x7fffffff) % 1000000
-        return f"{h:06d}"
+        code = (struct.unpack(">I", h[o:o+4])[0] & 0x7fffffff) % 1000000
+        otp_raw = f"{code:06d}"
+        
+        # Thêm khoảng trắng ở giữa để siêu dễ đọc (VD: 123 456)
+        otp_display = f"{otp_raw[:3]} {otp_raw[3:]}"
     except Exception:
-        return "ERROR!"
+        otp_display = "ERROR!"
+        otp_raw = "ERROR"
 
-def update_otp():
-    global tray_icon
-    otp = get_totp(SECRET)
-    remaining = 30 - int(time.time() % 30)
-    
-    label_otp.config(text=otp)
-    if otp in ["NO KEY", "ERROR!"]:
-        label_time.config(text="Vui lòng nhập Key")
-    else:
-        label_time.config(text=f"Đổi sau: {remaining}s")
-        # [THỦ THUẬT]: Cập nhật thẳng mã OTP vào tooltip của icon dưới khay hệ thống
+    label_otp.config(text=otp_display, font=OTP_FONT)
+
+    # 2. Tính toán thời gian thực
+    rem_exact = 30.0 - (current_time % 30.0)
+    rem_int = int(rem_exact)
+
+    # 3. Cập nhật Icon Taskbar (Chỉ cập nhật mỗi giây 1 lần để không bị quá tải)
+    if rem_int != last_remaining:
+        last_remaining = rem_int
         if IS_MINIMIZED and tray_icon is not None:
             try:
-                tray_icon.title = f"Mã: {otp} ({remaining}s)"
+                tray_icon.title = f"Mã: {otp_raw} ({rem_int}s)"
             except: pass
-    
+
+    # 4. Hiệu ứng Thanh Tiến Trình (Progress Bar Animation)
+    if otp_raw != "ERROR":
+        bar_width = max(0, int(130 * (rem_exact / 30.0))) # Dài tối đa 130px
+        
+        if rem_exact <= 5.0:
+            # Nhấp nháy màu đỏ mỗi 0.25 giây
+            ms = int(current_time * 4)
+            bar_color = "#ff3333" if ms % 2 == 0 else "black"
+        else:
+            # Màu bình thường theo lựa chọn
+            bar_color = COLORS[COLOR_INDEX]
+            
+        progress_canvas.coords(progress_bar, 0, 0, bar_width, 4)
+        progress_canvas.itemconfig(progress_bar, fill=bar_color)
+
     if not IS_MINIMIZED:
         root.lower()
         
-    root.after(1000, update_otp)
+    root.after(100, update_ui_loop)
 
 # --- XỬ LÝ KHAY HỆ THỐNG (SYSTEM TRAY) ---
 def create_tray_image():
-    # Tạo một icon hình vuông màu xanh lá cho dễ nhận diện dưới góc màn hình
     image = Image.new('RGB', (64, 64), color='black')
     dc = ImageDraw.Draw(image)
     dc.rectangle((16, 16, 48, 48), fill=COLORS[COLOR_INDEX])
     return image
 
 def restore_from_tray(icon, item):
-    global IS_MINIMIZED, tray_icon
+    global IS_MINIMIZED, tray_icon, LOCKED
     icon.stop()
     tray_icon = None
     IS_MINIMIZED = False
-    # Đưa cửa sổ trở lại
+    LOCKED = True 
+    root.after(0, update_lock_ui)
+    root.after(0, save_config)
     root.after(0, root.deiconify)
     root.after(0, root.lower)
 
-def exit_from_tray(icon, item):
-    icon.stop()
-    root.after(0, root.destroy)
+def prompt_exit_from_tray(icon, item):
+    root.after(0, show_tray_exit_prompt)
+
+def show_tray_exit_prompt():
+    exit_win = tk.Toplevel(root)
+    exit_win.title("Xác nhận Thoát")
+    exit_win.geometry("220x110")
+    exit_win.attributes('-topmost', True)
+    
+    tk.Label(exit_win, text="Nhập mật khẩu để thoát hoàn toàn:").pack(pady=5)
+    entry_pw = tk.Entry(exit_win, show="*", width=20, justify='center')
+    entry_pw.pack(pady=5)
+    entry_pw.focus()
+    
+    lbl_error = tk.Label(exit_win, text="", fg="red")
+    lbl_error.pack()
+    
+    def check_pw(event=None):
+        if entry_pw.get() == UNLOCK_PASSWORD:
+            if tray_icon is not None:
+                tray_icon.stop()
+            root.destroy()
+        else:
+            lbl_error.config(text="Sai mật khẩu!")
+            entry_pw.delete(0, tk.END)
+            
+    tk.Button(exit_win, text="Thoát App", command=check_pw, bg="#ff4444", fg="white").place(x=75, y=80)
+    exit_win.bind('<Return>', check_pw)
 
 def minimize_app(event=None):
     if LOCKED: return
     global IS_MINIMIZED, tray_icon
     IS_MINIMIZED = True
-    
-    # Ẩn hoàn toàn khỏi Desktop và Taskbar chính
     root.withdraw()
     
-    # Tạo icon dưới khay hệ thống (System Tray)
     menu = pystray.Menu(
-        pystray.MenuItem('Mở lại Widget', restore_from_tray, default=True),
-        pystray.MenuItem('Thoát hoàn toàn', exit_from_tray)
+        pystray.MenuItem('Mở lại Widget (Double Click)', restore_from_tray, default=True),
+        pystray.MenuItem('Thoát hoàn toàn', prompt_exit_from_tray)
     )
     tray_icon = pystray.Icon("OTP_Widget", create_tray_image(), "Đang tạo mã...", menu)
-    
-    # Chạy icon ngầm để không bị đơ giao diện
     threading.Thread(target=tray_icon.run, daemon=True).start()
 
-# --- XỬ LÝ MÀU SẮC ---
+# --- XỬ LÝ MÀU SẮC & KHÓA ---
 def cycle_color(event=None):
     if LOCKED: return
     global COLOR_INDEX
@@ -135,7 +188,6 @@ def cycle_color(event=None):
     label_otp.config(fg=COLORS[COLOR_INDEX])
     save_config()
 
-# --- XỬ LÝ KHÓA ---
 def update_lock_ui():
     btn_lock.config(text="🔒" if LOCKED else "🔓", fg="#ff4444" if LOCKED else "#aaaaaa")
 
@@ -200,7 +252,6 @@ def open_settings(event=None):
         save_config()
         set_autostart(AUTO_START)
         settings_win.destroy()
-        label_otp.config(text=get_totp(SECRET))
         
     tk.Button(settings_win, text="Lưu Cấu Hình", command=save_and_close, bg="#00ff00", fg="black").pack(pady=5)
 
@@ -237,24 +288,26 @@ root.wm_attributes("-transparentcolor", "black")
 root.lower()
 root.bind("<FocusIn>", lambda e: root.lower() if not IS_MINIMIZED else None) 
 
-# Chỉ gán thao tác Kéo và Thoát cho nền đen và vùng chữ số (Không gán cho nút)
 root.bind("<ButtonPress-1>", start_move)
 root.bind("<ButtonRelease-1>", stop_move)
 root.bind("<B1-Motion>", do_move)
 
-label_otp = tk.Label(root, text="------", font=("Consolas", 26, "bold"), fg=COLORS[COLOR_INDEX], bg="black")
-label_otp.place(x=0, y=0)
-label_time = tk.Label(root, text="Đổi sau: --s", font=("Consolas", 10, "bold"), fg="#ffffff", bg="black")
-label_time.place(x=5, y=45)
+# Kéo chữ số lên 1 xíu cho nằm giữa widget
+label_otp = tk.Label(root, text="--- ---", font=OTP_FONT, fg=COLORS[COLOR_INDEX], bg="black")
+label_otp.place(x=0, y=-2)
 
-# Gán Double Click để tắt CHỈ VÀO phần chữ số (tránh lỗi bấm nhầm nút màu)
+# VẼ THANH TIẾN TRÌNH DẠ QUANG (Thay cho chữ thời gian)
+progress_canvas = tk.Canvas(root, width=130, height=4, bg="black", highlightthickness=0)
+progress_canvas.place(x=5, y=52)
+progress_bar = progress_canvas.create_rectangle(0, 0, 130, 4, fill=COLORS[COLOR_INDEX], outline="")
+
+# Gán sự kiện chuột
 label_otp.bind("<Double-Button-1>", exit_app)
-label_time.bind("<Double-Button-1>", exit_app)
-# Cho phép cầm chữ số kéo đi
+progress_canvas.bind("<Double-Button-1>", exit_app)
 label_otp.bind("<ButtonPress-1>", start_move)
-label_time.bind("<ButtonPress-1>", start_move)
+progress_canvas.bind("<ButtonPress-1>", start_move)
 
-# --- BỐ TRÍ NÚT BẤM (Góc phải) ---
+# --- BỐ TRÍ NÚT BẤM ---
 btn_settings = tk.Label(root, text="⚙", font=("Segoe UI", 12), fg="#aaaaaa", bg="black", cursor="hand2", width=2, pady=2)
 btn_settings.place(x=140, y=5)
 btn_settings.bind("<Button-1>", open_settings)
@@ -271,5 +324,5 @@ btn_minimize = tk.Label(root, text=" ─ ", font=("Segoe UI", 10, "bold"), fg="#
 btn_minimize.place(x=170, y=35)
 btn_minimize.bind("<Button-1>", minimize_app)
 
-update_otp()
+update_ui_loop() # Kích hoạt vòng lặp hiệu ứng 100ms
 root.mainloop()
