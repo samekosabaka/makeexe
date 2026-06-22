@@ -9,12 +9,11 @@ CONFIG_FILE = os.path.join(APP_DIR, "config.json")
 
 # --- HỆ MÀU DẠ QUANG DỄ NHÌN ---
 COLORS = ["#00ff00", "#00ffff", "#ffff00", "#ff9900", "#ff00ff", "#ffffff", "#00bfff", "#ff3333"]
-
-# --- FONT CHỮ MỚI ---
 OTP_FONT = ("Segoe UI", 28, "bold")
 
 # Biến toàn cục
 SECRET = ""
+SECRET2 = ""  # Khóa phụ thứ 2
 LOCKED = False
 AUTO_START = False
 COLOR_INDEX = 0
@@ -23,13 +22,18 @@ IS_MINIMIZED = False
 tray_icon = None
 last_remaining = -1
 
+# Bộ đếm Double Click
+click_count = 0
+click_lock = threading.Lock()
+
 def load_config():
-    global SECRET, LOCKED, AUTO_START, COLOR_INDEX
+    global SECRET, SECRET2, LOCKED, AUTO_START, COLOR_INDEX
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 SECRET = data.get("secret", "")
+                SECRET2 = data.get("secret2", "")
                 LOCKED = data.get("locked", False)
                 AUTO_START = data.get("auto_start", False)
                 COLOR_INDEX = data.get("color_index", 0)
@@ -38,7 +42,7 @@ def load_config():
 
 def save_config():
     os.makedirs(APP_DIR, exist_ok=True)
-    data = {"secret": SECRET, "locked": LOCKED, "auto_start": AUTO_START, "color_index": COLOR_INDEX}
+    data = {"secret": SECRET, "secret2": SECRET2, "locked": LOCKED, "auto_start": AUTO_START, "color_index": COLOR_INDEX}
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f)
 
@@ -57,86 +61,95 @@ def set_autostart(enable):
 
 load_config()
 
-# --- VÒNG LẶP GIAO DIỆN CHÍNH (Chạy mỗi 100ms để Animation mượt) ---
-def update_ui_loop():
-    global last_remaining, tray_icon
-    
-    if not SECRET:
-        label_otp.config(text="NO KEY", font=("Segoe UI", 20, "bold"))
-        progress_canvas.itemconfig(progress_bar, fill="black")
-        root.after(100, update_ui_loop)
-        return
-
-    # 1. Tính toán OTP
+# --- HÀM TÍNH TOÁN OTP DÙNG CHUNG ---
+def calc_otp(sec, curr_time):
+    if not sec: return "NO KEY", ""
     try:
-        secret_cl = SECRET.replace(' ', '').upper()
+        secret_cl = sec.replace(' ', '').upper()
         secret_cl += '=' * ((8 - len(secret_cl) % 8) % 8)
         key = base64.b32decode(secret_cl)
-        
-        current_time = time.time()
-        msg = struct.pack(">Q", int(current_time // 30))
+        msg = struct.pack(">Q", int(curr_time // 30))
         h = hmac.new(key, msg, hashlib.sha1).digest()
         o = h[19] & 15
         code = (struct.unpack(">I", h[o:o+4])[0] & 0x7fffffff) % 1000000
         otp_raw = f"{code:06d}"
-        
-        # Thêm khoảng trắng ở giữa để siêu dễ đọc (VD: 123 456)
-        otp_display = f"{otp_raw[:3]} {otp_raw[3:]}"
+        return f"{otp_raw[:3]} {otp_raw[3:]}", otp_raw
     except Exception:
-        otp_display = "ERROR!"
-        otp_raw = "ERROR"
+        return "ERROR!", ""
 
-    label_otp.config(text=otp_display, font=OTP_FONT)
+# --- VÒNG LẶP GIAO DIỆN CHÍNH ---
+def update_ui_loop():
+    global last_remaining, tray_icon
+    
+    current_time = time.time()
+    
+    # Tính toán cả 2 mã OTP
+    disp1, raw1 = calc_otp(SECRET, current_time)
+    disp2, raw2 = calc_otp(SECRET2, current_time) if SECRET2 else ("--- ---", "")
 
-    # 2. Tính toán thời gian thực
+    label_otp1.config(text=disp1, font=OTP_FONT)
+    label_otp2.config(text=disp2, font=OTP_FONT)
+
     rem_exact = 30.0 - (current_time % 30.0)
     rem_int = int(rem_exact)
 
-    # 3. Cập nhật Icon Taskbar (Chỉ cập nhật mỗi giây 1 lần để không bị quá tải)
+    # Cập nhật Tooltip Taskbar (Gộp cả 2 key nếu có)
     if rem_int != last_remaining:
         last_remaining = rem_int
         if IS_MINIMIZED and tray_icon is not None:
+            t_str = f"1: {raw1}" if raw1 else "NO KEY"
+            if raw2: t_str += f" | 2: {raw2}"
+            t_str += f" ({rem_int}s)"
             try:
-                tray_icon.title = f"Mã: {otp_raw} ({rem_int}s)"
+                tray_icon.title = t_str
             except: pass
 
-    # 4. Hiệu ứng Thanh Tiến Trình (Progress Bar Animation)
-    if otp_raw != "ERROR":
-        bar_width = max(0, int(130 * (rem_exact / 30.0))) # Dài tối đa 130px
-        
+    # Cập nhật Thanh Tiến Trình (Dài 270px bao trọn 2 OTP)
+    if raw1 != "" or raw2 != "":
+        bar_width = max(0, int(270 * (rem_exact / 30.0))) 
         if rem_exact <= 5.0:
-            # Nhấp nháy màu đỏ mỗi 0.25 giây
             ms = int(current_time * 4)
             bar_color = "#ff3333" if ms % 2 == 0 else "black"
         else:
-            # Màu bình thường theo lựa chọn
             bar_color = COLORS[COLOR_INDEX]
             
         progress_canvas.coords(progress_bar, 0, 0, bar_width, 4)
         progress_canvas.itemconfig(progress_bar, fill=bar_color)
+    else:
+        progress_canvas.itemconfig(progress_bar, fill="black")
 
     if not IS_MINIMIZED:
         root.lower()
         
     root.after(100, update_ui_loop)
 
-# --- XỬ LÝ KHAY HỆ THỐNG (SYSTEM TRAY) ---
+# --- XỬ LÝ KHAY HỆ THỐNG VÀ THỦ THUẬT PHÂN BIỆT CLICK ---
 def create_tray_image():
     image = Image.new('RGB', (64, 64), color='black')
     dc = ImageDraw.Draw(image)
     dc.rectangle((16, 16, 48, 48), fill=COLORS[COLOR_INDEX])
     return image
 
+def check_double_click(icon):
+    global click_count, IS_MINIMIZED, tray_icon, LOCKED
+    with click_lock:
+        if click_count >= 2:
+            icon.stop()
+            tray_icon = None
+            IS_MINIMIZED = False
+            LOCKED = True 
+            root.after(0, update_lock_ui)
+            root.after(0, save_config)
+            root.after(0, root.deiconify)
+            root.after(0, root.lower)
+        click_count = 0
+
 def restore_from_tray(icon, item):
-    global IS_MINIMIZED, tray_icon, LOCKED
-    icon.stop()
-    tray_icon = None
-    IS_MINIMIZED = False
-    LOCKED = True 
-    root.after(0, update_lock_ui)
-    root.after(0, save_config)
-    root.after(0, root.deiconify)
-    root.after(0, root.lower)
+    global click_count
+    with click_lock:
+        click_count += 1
+        if click_count == 1:
+            threading.Timer(0.35, check_double_click, args=[icon]).start()
 
 def prompt_exit_from_tray(icon, item):
     root.after(0, show_tray_exit_prompt)
@@ -157,8 +170,7 @@ def show_tray_exit_prompt():
     
     def check_pw(event=None):
         if entry_pw.get() == UNLOCK_PASSWORD:
-            if tray_icon is not None:
-                tray_icon.stop()
+            if tray_icon is not None: tray_icon.stop()
             root.destroy()
         else:
             lbl_error.config(text="Sai mật khẩu!")
@@ -174,7 +186,7 @@ def minimize_app(event=None):
     root.withdraw()
     
     menu = pystray.Menu(
-        pystray.MenuItem('Mở lại Widget (Double Click)', restore_from_tray, default=True),
+        pystray.MenuItem('Mở lại Widget', restore_from_tray, default=True, visible=False),
         pystray.MenuItem('Thoát hoàn toàn', prompt_exit_from_tray)
     )
     tray_icon = pystray.Icon("OTP_Widget", create_tray_image(), "Đang tạo mã...", menu)
@@ -185,7 +197,8 @@ def cycle_color(event=None):
     if LOCKED: return
     global COLOR_INDEX
     COLOR_INDEX = (COLOR_INDEX + 1) % len(COLORS)
-    label_otp.config(fg=COLORS[COLOR_INDEX])
+    label_otp1.config(fg=COLORS[COLOR_INDEX])
+    label_otp2.config(fg=COLORS[COLOR_INDEX])
     save_config()
 
 def update_lock_ui():
@@ -233,21 +246,27 @@ def open_settings(event=None):
     if LOCKED: return 
     settings_win = tk.Toplevel(root)
     settings_win.title("Cài Đặt OTP")
-    settings_win.geometry("300x150")
+    settings_win.geometry("300x220") # Mở rộng chiều cao để chứa 2 ô
     settings_win.attributes('-topmost', True)
     
-    tk.Label(settings_win, text="Nhập Secret Key 2FA của bạn:").pack(pady=(10, 0))
-    entry_secret = tk.Entry(settings_win, width=35)
-    entry_secret.insert(0, SECRET)
-    entry_secret.pack(pady=5)
+    tk.Label(settings_win, text="Secret Key 1 (Chính):").pack(pady=(10, 0))
+    entry_secret1 = tk.Entry(settings_win, width=35)
+    entry_secret1.insert(0, SECRET)
+    entry_secret1.pack(pady=2)
+
+    tk.Label(settings_win, text="Secret Key 2 (Phụ - Tùy chọn):").pack(pady=(5, 0))
+    entry_secret2 = tk.Entry(settings_win, width=35)
+    entry_secret2.insert(0, SECRET2)
+    entry_secret2.pack(pady=2)
     
     var_autostart = tk.BooleanVar(value=AUTO_START)
     chk_autostart = tk.Checkbutton(settings_win, text="Khởi động cùng Windows", variable=var_autostart)
     chk_autostart.pack(pady=5)
     
     def save_and_close():
-        global SECRET, AUTO_START
-        SECRET = entry_secret.get().strip()
+        global SECRET, SECRET2, AUTO_START
+        SECRET = entry_secret1.get().strip()
+        SECRET2 = entry_secret2.get().strip()
         AUTO_START = var_autostart.get()
         save_config()
         set_autostart(AUTO_START)
@@ -255,7 +274,7 @@ def open_settings(event=None):
         
     tk.Button(settings_win, text="Lưu Cấu Hình", command=save_and_close, bg="#00ff00", fg="black").pack(pady=5)
 
-# --- XỬ LÝ KÉO THẢ & THOÁT ---
+# --- XỬ LÝ KÉO THẢ & THOÁT NGOÀI DESKTOP ---
 def start_move(event):
     if LOCKED: return
     root.x = event.x
@@ -280,7 +299,7 @@ def exit_app(event=None):
 
 # --- THIẾT LẬP WIDGET ---
 root = tk.Tk()
-root.geometry("200x70+100+100") 
+root.geometry("345x70+100+100") # Kéo dài Widget ra thành 345px
 root.overrideredirect(True) 
 
 root.configure(bg='black')
@@ -292,37 +311,43 @@ root.bind("<ButtonPress-1>", start_move)
 root.bind("<ButtonRelease-1>", stop_move)
 root.bind("<B1-Motion>", do_move)
 
-# Kéo chữ số lên 1 xíu cho nằm giữa widget
-label_otp = tk.Label(root, text="--- ---", font=OTP_FONT, fg=COLORS[COLOR_INDEX], bg="black")
-label_otp.place(x=0, y=-2)
+# BỐ TRÍ DẢI OTP KÉP (Dual OTP)
+label_otp1 = tk.Label(root, text="--- ---", font=OTP_FONT, fg=COLORS[COLOR_INDEX], bg="black")
+label_otp1.place(x=5, y=-2)
 
-# VẼ THANH TIẾN TRÌNH DẠ QUANG (Thay cho chữ thời gian)
-progress_canvas = tk.Canvas(root, width=130, height=4, bg="black", highlightthickness=0)
+# Đường phân cách mỏng chuyên nghiệp ở giữa 2 mã
+separator = tk.Frame(root, bg="#444444")
+separator.place(x=140, y=12, width=2, height=32)
+
+label_otp2 = tk.Label(root, text="--- ---", font=OTP_FONT, fg=COLORS[COLOR_INDEX], bg="black")
+label_otp2.place(x=146, y=-2)
+
+# Thanh tiến trình dài 270px
+progress_canvas = tk.Canvas(root, width=270, height=4, bg="black", highlightthickness=0)
 progress_canvas.place(x=5, y=52)
-progress_bar = progress_canvas.create_rectangle(0, 0, 130, 4, fill=COLORS[COLOR_INDEX], outline="")
+progress_bar = progress_canvas.create_rectangle(0, 0, 270, 4, fill=COLORS[COLOR_INDEX], outline="")
 
-# Gán sự kiện chuột
-label_otp.bind("<Double-Button-1>", exit_app)
-progress_canvas.bind("<Double-Button-1>", exit_app)
-label_otp.bind("<ButtonPress-1>", start_move)
-progress_canvas.bind("<ButtonPress-1>", start_move)
+# Gán sự kiện cho từng thành phần
+for widget in [label_otp1, label_otp2, progress_canvas, separator]:
+    widget.bind("<Double-Button-1>", exit_app)
+    widget.bind("<ButtonPress-1>", start_move)
 
-# --- BỐ TRÍ NÚT BẤM ---
-btn_settings = tk.Label(root, text="⚙", font=("Segoe UI", 12), fg="#aaaaaa", bg="black", cursor="hand2", width=2, pady=2)
-btn_settings.place(x=140, y=5)
+# --- BỐ TRÍ CỤM NÚT BẤM 2X2 (HITBOX CHUẨN PIXEL) ---
+btn_settings = tk.Label(root, text="⚙", font=("Segoe UI", 12), fg="#aaaaaa", bg="black", cursor="hand2")
+btn_settings.place(x=280, y=5, width=28, height=28)
 btn_settings.bind("<Button-1>", open_settings)
 
-btn_color = tk.Label(root, text="🎨", font=("Segoe UI", 11), fg="#aaaaaa", bg="black", cursor="hand2", width=2, pady=2)
-btn_color.place(x=170, y=5)
+btn_color = tk.Label(root, text="🎨", font=("Segoe UI", 11), fg="#aaaaaa", bg="black", cursor="hand2")
+btn_color.place(x=312, y=5, width=28, height=28)
 btn_color.bind("<Button-1>", cycle_color)
 
-btn_lock = tk.Label(root, text="🔒" if LOCKED else "🔓", font=("Segoe UI", 11), fg="#ff4444" if LOCKED else "#aaaaaa", bg="black", cursor="hand2", width=2, pady=2)
-btn_lock.place(x=140, y=35)
+btn_lock = tk.Label(root, text="🔒" if LOCKED else "🔓", font=("Segoe UI", 11), fg="#ff4444" if LOCKED else "#aaaaaa", bg="black", cursor="hand2")
+btn_lock.place(x=280, y=36, width=28, height=28)
 btn_lock.bind("<Button-1>", toggle_lock)
 
-btn_minimize = tk.Label(root, text=" ─ ", font=("Segoe UI", 10, "bold"), fg="#aaaaaa", bg="black", cursor="hand2", width=2, pady=2)
-btn_minimize.place(x=170, y=35)
+btn_minimize = tk.Label(root, text="▼", font=("Segoe UI", 12), fg="#aaaaaa", bg="black", cursor="hand2")
+btn_minimize.place(x=312, y=36, width=28, height=28)
 btn_minimize.bind("<Button-1>", minimize_app)
 
-update_ui_loop() # Kích hoạt vòng lặp hiệu ứng 100ms
+update_ui_loop() 
 root.mainloop()
