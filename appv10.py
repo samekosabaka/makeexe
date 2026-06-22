@@ -5,14 +5,28 @@ import hmac, base64, struct, hashlib, time, os, sys, json
 APP_DIR = r"C:\Users\thietbingoaiquang\Desktop\app"
 CONFIG_FILE = os.path.join(APP_DIR, "config.json")
 
+# --- HỆ MÀU DẠ QUANG DỄ NHÌN ---
+COLORS = [
+    "#00ff00", # Xanh lá (Mặc định)
+    "#00ffff", # Xanh lơ (Cyan)
+    "#ffff00", # Vàng
+    "#ff9900", # Cam
+    "#ff00ff", # Hồng (Magenta)
+    "#ffffff", # Trắng
+    "#00bfff", # Xanh dương nhạt
+    "#ff3333"  # Đỏ tươi
+]
+
 # Biến toàn cục
 SECRET = ""
 LOCKED = False
 AUTO_START = False
-UNLOCK_PASSWORD = "2026" # Mật khẩu mặc định
+COLOR_INDEX = 0
+UNLOCK_PASSWORD = "2026" 
+IS_MINIMIZED = False # Trạng thái đang thu nhỏ
 
 def load_config():
-    global SECRET, LOCKED, AUTO_START
+    global SECRET, LOCKED, AUTO_START, COLOR_INDEX
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -20,6 +34,7 @@ def load_config():
                 SECRET = data.get("secret", "")
                 LOCKED = data.get("locked", False)
                 AUTO_START = data.get("auto_start", False)
+                COLOR_INDEX = data.get("color_index", 0)
         except Exception:
             pass
 
@@ -28,7 +43,8 @@ def save_config():
     data = {
         "secret": SECRET,
         "locked": LOCKED,
-        "auto_start": AUTO_START
+        "auto_start": AUTO_START,
+        "color_index": COLOR_INDEX
     }
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f)
@@ -76,11 +92,44 @@ def update_otp():
     label_otp.config(text=otp)
     if otp in ["NO KEY", "ERROR!"]:
         label_time.config(text="Vui lòng nhập Key")
+        root.title("OTP: NO KEY")
     else:
         label_time.config(text=f"Đổi sau: {remaining}s")
+        # [THỦ THUẬT]: Đẩy OTP và thời gian trực tiếp lên tiêu đề Taskbar
+        root.title(f"{otp} ({remaining}s)")
     
-    root.lower()
+    # Chỉ ép nằm dưới cùng khi đang hiển thị trên Desktop
+    if not IS_MINIMIZED:
+        root.lower()
+        
     root.after(1000, update_otp)
+
+# --- XỬ LÝ ẨN XUỐNG TASKBAR ---
+def minimize_app(event=None):
+    if LOCKED: return
+    global IS_MINIMIZED
+    IS_MINIMIZED = True
+    # Trả lại viền cửa sổ để Windows nhận diện đưa xuống Taskbar
+    root.overrideredirect(False)
+    root.iconify()
+
+def on_restore(event):
+    global IS_MINIMIZED
+    # Nếu đang thu nhỏ và người dùng click vào icon taskbar để mở lại
+    if IS_MINIMIZED and str(event.widget) == ".":
+        IS_MINIMIZED = False
+        # Xóa viền và biến nền thành trong suốt trở lại
+        root.overrideredirect(True)
+        root.wm_attributes("-transparentcolor", "black")
+        root.lower()
+
+# --- XỬ LÝ HỆ MÀU SẮC ---
+def cycle_color(event=None):
+    if LOCKED: return
+    global COLOR_INDEX
+    COLOR_INDEX = (COLOR_INDEX + 1) % len(COLORS)
+    label_otp.config(fg=COLORS[COLOR_INDEX])
+    save_config()
 
 # --- XỬ LÝ KHÓA BẢO MẬT ---
 def update_lock_ui():
@@ -89,12 +138,10 @@ def update_lock_ui():
 def toggle_lock(event=None):
     global LOCKED
     if not LOCKED:
-        # Đang mở -> Khóa lại ngay lập tức không cần pass
         LOCKED = True
         update_lock_ui()
         save_config()
     else:
-        # Đang khóa -> Bật hộp thoại hỏi Pass
         prompt_unlock()
 
 def prompt_unlock():
@@ -105,7 +152,6 @@ def prompt_unlock():
     
     tk.Label(unlock_win, text="Nhập mật khẩu để mở khóa:").pack(pady=5)
     
-    # Ô nhập pass (ẩn ký tự)
     entry_pw = tk.Entry(unlock_win, show="*", width=20, justify='center')
     entry_pw.pack(pady=5)
     entry_pw.focus()
@@ -125,13 +171,11 @@ def prompt_unlock():
             entry_pw.delete(0, tk.END)
             
     tk.Button(unlock_win, text="Mở Khóa", command=check_pw, bg="#aaaaaa", fg="black").place(x=80, y=80)
-    # Hỗ trợ bấm Enter để mở
     unlock_win.bind('<Return>', check_pw)
 
 # --- XỬ LÝ CỬA SỔ CÀI ĐẶT ---
 def open_settings(event=None):
-    if LOCKED:
-        return # Đang khóa thì không cho mở cài đặt
+    if LOCKED: return 
         
     settings_win = tk.Toplevel(root)
     settings_win.title("Cài Đặt OTP")
@@ -179,40 +223,51 @@ def do_move(event):
     root.geometry(f"+{x}+{y}")
 
 def exit_app(event=None):
-    # CHỈ cho phép tắt Widget khi chưa khóa
     if not LOCKED:
         root.destroy()
 
 # --- THIẾT LẬP WIDGET DESKTOP ---
 root = tk.Tk()
-# Chỉnh lại kích thước để các nút xếp dọc vừa vặn
-root.geometry("180x70+100+100") 
+# Nới rộng widget để chứa 4 nút thoải mái hơn
+root.geometry("200x70+100+100") 
 root.overrideredirect(True) 
 
 root.configure(bg='black')
 root.wm_attributes("-transparentcolor", "black")
-
 root.lower()
-root.bind("<FocusIn>", lambda e: root.lower()) 
+
+# Lắng nghe sự kiện khôi phục từ Taskbar
+root.bind("<Map>", on_restore)
+root.bind("<FocusIn>", lambda e: root.lower() if not IS_MINIMIZED else None) 
 
 root.bind("<ButtonPress-1>", start_move)
 root.bind("<ButtonRelease-1>", stop_move)
 root.bind("<B1-Motion>", do_move)
-root.bind("<Double-Button-1>", exit_app) # Hàm thoát mới
+root.bind("<Double-Button-1>", exit_app)
 
-# --- GIAO DIỆN CHỮ VÀ NÚT ---
-# Đặt nút bánh răng ở trên cùng bên phải
-btn_settings = tk.Label(root, text="⚙", font=("Segoe UI", 12), fg="#aaaaaa", bg="black", cursor="hand2")
-btn_settings.place(x=155, y=5)
+# --- BỐ TRÍ CỤM NÚT BẤM (Hitbox lớn) ---
+# Tăng width, padx, pady để làm ô bấm to ra
+
+# Dòng trên: Cài đặt (⚙) và Đổi màu (🎨)
+btn_settings = tk.Label(root, text="⚙", font=("Segoe UI", 12), fg="#aaaaaa", bg="black", cursor="hand2", width=2, pady=2)
+btn_settings.place(x=140, y=5)
 btn_settings.bind("<Button-1>", open_settings)
 
-# Đặt nút ổ khóa ngay phía dưới nút bánh răng
-btn_lock = tk.Label(root, text="🔒" if LOCKED else "🔓", font=("Segoe UI", 11), fg="#ff4444" if LOCKED else "#aaaaaa", bg="black", cursor="hand2")
-btn_lock.place(x=155, y=32)
+btn_color = tk.Label(root, text="🎨", font=("Segoe UI", 11), fg="#aaaaaa", bg="black", cursor="hand2", width=2, pady=2)
+btn_color.place(x=170, y=5)
+btn_color.bind("<Button-1>", cycle_color)
+
+# Dòng dưới: Ổ khóa (🔒) và Thu nhỏ (_)
+btn_lock = tk.Label(root, text="🔒" if LOCKED else "🔓", font=("Segoe UI", 11), fg="#ff4444" if LOCKED else "#aaaaaa", bg="black", cursor="hand2", width=2, pady=2)
+btn_lock.place(x=140, y=35)
 btn_lock.bind("<Button-1>", toggle_lock)
 
-# Căn lề số OTP đẩy nhẹ sang trái để nhường chỗ cho cụm nút bấm
-label_otp = tk.Label(root, text="------", font=("Consolas", 26, "bold"), fg="#00ff00", bg="black")
+btn_minimize = tk.Label(root, text=" ─ ", font=("Segoe UI", 10, "bold"), fg="#aaaaaa", bg="black", cursor="hand2", width=2, pady=2)
+btn_minimize.place(x=170, y=35)
+btn_minimize.bind("<Button-1>", minimize_app)
+
+# Căn lề số OTP và gán màu đã lưu
+label_otp = tk.Label(root, text="------", font=("Consolas", 26, "bold"), fg=COLORS[COLOR_INDEX], bg="black")
 label_otp.place(x=0, y=0)
 
 label_time = tk.Label(root, text="Đổi sau: --s", font=("Consolas", 10, "bold"), fg="#ffffff", bg="black")
