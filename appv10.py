@@ -1,21 +1,14 @@
 import tkinter as tk
-import hmac, base64, struct, hashlib, time, os, sys, json
+import hmac, base64, struct, hashlib, time, os, sys, json, threading
+from PIL import Image, ImageDraw
+import pystray
 
-# --- CẤU HÌNH ĐƯỜNG DẪN WINAUTH ---
+# --- CẤU HÌNH ĐƯỜNG DẪN ---
 APP_DIR = r"C:\Users\thietbingoaiquang\Desktop\app"
 CONFIG_FILE = os.path.join(APP_DIR, "config.json")
 
 # --- HỆ MÀU DẠ QUANG DỄ NHÌN ---
-COLORS = [
-    "#00ff00", # Xanh lá (Mặc định)
-    "#00ffff", # Xanh lơ (Cyan)
-    "#ffff00", # Vàng
-    "#ff9900", # Cam
-    "#ff00ff", # Hồng (Magenta)
-    "#ffffff", # Trắng
-    "#00bfff", # Xanh dương nhạt
-    "#ff3333"  # Đỏ tươi
-]
+COLORS = ["#00ff00", "#00ffff", "#ffff00", "#ff9900", "#ff00ff", "#ffffff", "#00bfff", "#ff3333"]
 
 # Biến toàn cục
 SECRET = ""
@@ -23,7 +16,8 @@ LOCKED = False
 AUTO_START = False
 COLOR_INDEX = 0
 UNLOCK_PASSWORD = "2026" 
-IS_MINIMIZED = False # Trạng thái đang thu nhỏ
+IS_MINIMIZED = False
+tray_icon = None  # Quản lý icon dưới góc màn hình
 
 def load_config():
     global SECRET, LOCKED, AUTO_START, COLOR_INDEX
@@ -40,39 +34,27 @@ def load_config():
 
 def save_config():
     os.makedirs(APP_DIR, exist_ok=True)
-    data = {
-        "secret": SECRET,
-        "locked": LOCKED,
-        "auto_start": AUTO_START,
-        "color_index": COLOR_INDEX
-    }
+    data = {"secret": SECRET, "locked": LOCKED, "auto_start": AUTO_START, "color_index": COLOR_INDEX}
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f)
 
 def set_autostart(enable):
-    if getattr(sys, 'frozen', False):
-        exe_path = sys.executable
-    else:
-        exe_path = os.path.abspath(__file__)
-        
+    exe_path = sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__)
     startup_dir = os.path.join(os.getenv('APPDATA'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
     bat_path = os.path.join(startup_dir, "DesktopOTPWidget.bat")
-    
     try:
         if enable:
             with open(bat_path, "w", encoding="utf-8") as f:
                 f.write(f'@echo off\nstart "" "{exe_path}"')
-        else:
-            if os.path.exists(bat_path):
-                os.remove(bat_path)
+        elif os.path.exists(bat_path):
+            os.remove(bat_path)
     except Exception:
         pass
 
 load_config()
 
 def get_totp(secret):
-    if not secret:
-        return "NO KEY"
+    if not secret: return "NO KEY"
     try:
         secret = secret.replace(' ', '').upper()
         secret += '=' * ((8 - len(secret) % 8) % 8)
@@ -86,44 +68,66 @@ def get_totp(secret):
         return "ERROR!"
 
 def update_otp():
+    global tray_icon
     otp = get_totp(SECRET)
     remaining = 30 - int(time.time() % 30)
     
     label_otp.config(text=otp)
     if otp in ["NO KEY", "ERROR!"]:
         label_time.config(text="Vui lòng nhập Key")
-        root.title("OTP: NO KEY")
     else:
         label_time.config(text=f"Đổi sau: {remaining}s")
-        # [THỦ THUẬT]: Đẩy OTP và thời gian trực tiếp lên tiêu đề Taskbar
-        root.title(f"{otp} ({remaining}s)")
+        # [THỦ THUẬT]: Cập nhật thẳng mã OTP vào tooltip của icon dưới khay hệ thống
+        if IS_MINIMIZED and tray_icon is not None:
+            try:
+                tray_icon.title = f"Mã: {otp} ({remaining}s)"
+            except: pass
     
-    # Chỉ ép nằm dưới cùng khi đang hiển thị trên Desktop
     if not IS_MINIMIZED:
         root.lower()
         
     root.after(1000, update_otp)
 
-# --- XỬ LÝ ẨN XUỐNG TASKBAR ---
+# --- XỬ LÝ KHAY HỆ THỐNG (SYSTEM TRAY) ---
+def create_tray_image():
+    # Tạo một icon hình vuông màu xanh lá cho dễ nhận diện dưới góc màn hình
+    image = Image.new('RGB', (64, 64), color='black')
+    dc = ImageDraw.Draw(image)
+    dc.rectangle((16, 16, 48, 48), fill=COLORS[COLOR_INDEX])
+    return image
+
+def restore_from_tray(icon, item):
+    global IS_MINIMIZED, tray_icon
+    icon.stop()
+    tray_icon = None
+    IS_MINIMIZED = False
+    # Đưa cửa sổ trở lại
+    root.after(0, root.deiconify)
+    root.after(0, root.lower)
+
+def exit_from_tray(icon, item):
+    icon.stop()
+    root.after(0, root.destroy)
+
 def minimize_app(event=None):
     if LOCKED: return
-    global IS_MINIMIZED
+    global IS_MINIMIZED, tray_icon
     IS_MINIMIZED = True
-    # Trả lại viền cửa sổ để Windows nhận diện đưa xuống Taskbar
-    root.overrideredirect(False)
-    root.iconify()
+    
+    # Ẩn hoàn toàn khỏi Desktop và Taskbar chính
+    root.withdraw()
+    
+    # Tạo icon dưới khay hệ thống (System Tray)
+    menu = pystray.Menu(
+        pystray.MenuItem('Mở lại Widget', restore_from_tray, default=True),
+        pystray.MenuItem('Thoát hoàn toàn', exit_from_tray)
+    )
+    tray_icon = pystray.Icon("OTP_Widget", create_tray_image(), "Đang tạo mã...", menu)
+    
+    # Chạy icon ngầm để không bị đơ giao diện
+    threading.Thread(target=tray_icon.run, daemon=True).start()
 
-def on_restore(event):
-    global IS_MINIMIZED
-    # Nếu đang thu nhỏ và người dùng click vào icon taskbar để mở lại
-    if IS_MINIMIZED and str(event.widget) == ".":
-        IS_MINIMIZED = False
-        # Xóa viền và biến nền thành trong suốt trở lại
-        root.overrideredirect(True)
-        root.wm_attributes("-transparentcolor", "black")
-        root.lower()
-
-# --- XỬ LÝ HỆ MÀU SẮC ---
+# --- XỬ LÝ MÀU SẮC ---
 def cycle_color(event=None):
     if LOCKED: return
     global COLOR_INDEX
@@ -131,7 +135,7 @@ def cycle_color(event=None):
     label_otp.config(fg=COLORS[COLOR_INDEX])
     save_config()
 
-# --- XỬ LÝ KHÓA BẢO MẬT ---
+# --- XỬ LÝ KHÓA ---
 def update_lock_ui():
     btn_lock.config(text="🔒" if LOCKED else "🔓", fg="#ff4444" if LOCKED else "#aaaaaa")
 
@@ -151,7 +155,6 @@ def prompt_unlock():
     unlock_win.attributes('-topmost', True)
     
     tk.Label(unlock_win, text="Nhập mật khẩu để mở khóa:").pack(pady=5)
-    
     entry_pw = tk.Entry(unlock_win, show="*", width=20, justify='center')
     entry_pw.pack(pady=5)
     entry_pw.focus()
@@ -173,10 +176,9 @@ def prompt_unlock():
     tk.Button(unlock_win, text="Mở Khóa", command=check_pw, bg="#aaaaaa", fg="black").place(x=80, y=80)
     unlock_win.bind('<Return>', check_pw)
 
-# --- XỬ LÝ CỬA SỔ CÀI ĐẶT ---
+# --- XỬ LÝ CÀI ĐẶT ---
 def open_settings(event=None):
     if LOCKED: return 
-        
     settings_win = tk.Toplevel(root)
     settings_win.title("Cài Đặt OTP")
     settings_win.geometry("300x150")
@@ -195,7 +197,6 @@ def open_settings(event=None):
         global SECRET, AUTO_START
         SECRET = entry_secret.get().strip()
         AUTO_START = var_autostart.get()
-        
         save_config()
         set_autostart(AUTO_START)
         settings_win.destroy()
@@ -226,29 +227,34 @@ def exit_app(event=None):
     if not LOCKED:
         root.destroy()
 
-# --- THIẾT LẬP WIDGET DESKTOP ---
+# --- THIẾT LẬP WIDGET ---
 root = tk.Tk()
-# Nới rộng widget để chứa 4 nút thoải mái hơn
 root.geometry("200x70+100+100") 
 root.overrideredirect(True) 
 
 root.configure(bg='black')
 root.wm_attributes("-transparentcolor", "black")
 root.lower()
-
-# Lắng nghe sự kiện khôi phục từ Taskbar
-root.bind("<Map>", on_restore)
 root.bind("<FocusIn>", lambda e: root.lower() if not IS_MINIMIZED else None) 
 
+# Chỉ gán thao tác Kéo và Thoát cho nền đen và vùng chữ số (Không gán cho nút)
 root.bind("<ButtonPress-1>", start_move)
 root.bind("<ButtonRelease-1>", stop_move)
 root.bind("<B1-Motion>", do_move)
-root.bind("<Double-Button-1>", exit_app)
 
-# --- BỐ TRÍ CỤM NÚT BẤM (Hitbox lớn) ---
-# Tăng width, padx, pady để làm ô bấm to ra
+label_otp = tk.Label(root, text="------", font=("Consolas", 26, "bold"), fg=COLORS[COLOR_INDEX], bg="black")
+label_otp.place(x=0, y=0)
+label_time = tk.Label(root, text="Đổi sau: --s", font=("Consolas", 10, "bold"), fg="#ffffff", bg="black")
+label_time.place(x=5, y=45)
 
-# Dòng trên: Cài đặt (⚙) và Đổi màu (🎨)
+# Gán Double Click để tắt CHỈ VÀO phần chữ số (tránh lỗi bấm nhầm nút màu)
+label_otp.bind("<Double-Button-1>", exit_app)
+label_time.bind("<Double-Button-1>", exit_app)
+# Cho phép cầm chữ số kéo đi
+label_otp.bind("<ButtonPress-1>", start_move)
+label_time.bind("<ButtonPress-1>", start_move)
+
+# --- BỐ TRÍ NÚT BẤM (Góc phải) ---
 btn_settings = tk.Label(root, text="⚙", font=("Segoe UI", 12), fg="#aaaaaa", bg="black", cursor="hand2", width=2, pady=2)
 btn_settings.place(x=140, y=5)
 btn_settings.bind("<Button-1>", open_settings)
@@ -257,7 +263,6 @@ btn_color = tk.Label(root, text="🎨", font=("Segoe UI", 11), fg="#aaaaaa", bg=
 btn_color.place(x=170, y=5)
 btn_color.bind("<Button-1>", cycle_color)
 
-# Dòng dưới: Ổ khóa (🔒) và Thu nhỏ (_)
 btn_lock = tk.Label(root, text="🔒" if LOCKED else "🔓", font=("Segoe UI", 11), fg="#ff4444" if LOCKED else "#aaaaaa", bg="black", cursor="hand2", width=2, pady=2)
 btn_lock.place(x=140, y=35)
 btn_lock.bind("<Button-1>", toggle_lock)
@@ -265,13 +270,6 @@ btn_lock.bind("<Button-1>", toggle_lock)
 btn_minimize = tk.Label(root, text=" ─ ", font=("Segoe UI", 10, "bold"), fg="#aaaaaa", bg="black", cursor="hand2", width=2, pady=2)
 btn_minimize.place(x=170, y=35)
 btn_minimize.bind("<Button-1>", minimize_app)
-
-# Căn lề số OTP và gán màu đã lưu
-label_otp = tk.Label(root, text="------", font=("Consolas", 26, "bold"), fg=COLORS[COLOR_INDEX], bg="black")
-label_otp.place(x=0, y=0)
-
-label_time = tk.Label(root, text="Đổi sau: --s", font=("Consolas", 10, "bold"), fg="#ffffff", bg="black")
-label_time.place(x=5, y=45)
 
 update_otp()
 root.mainloop()
