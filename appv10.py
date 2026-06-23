@@ -13,7 +13,7 @@ OTP_FONT = ("Segoe UI", 28, "bold")
 
 # Biến toàn cục
 SECRET = ""
-SECRET2 = ""  # Khóa phụ thứ 2
+SECRET2 = ""  
 LOCKED = False
 AUTO_START = False
 COLOR_INDEX = 0
@@ -93,7 +93,7 @@ def update_ui_loop():
     rem_exact = 30.0 - (current_time % 30.0)
     rem_int = int(rem_exact)
 
-    # Cập nhật Tooltip Taskbar (Gộp cả 2 key nếu có)
+    # Cập nhật Tooltip Taskbar
     if rem_int != last_remaining:
         last_remaining = rem_int
         if IS_MINIMIZED and tray_icon is not None:
@@ -104,26 +104,35 @@ def update_ui_loop():
                 tray_icon.title = t_str
             except: pass
 
-    # Cập nhật Thanh Tiến Trình (Dài 270px bao trọn 2 OTP)
-    if raw1 != "" or raw2 != "":
-        bar_width = max(0, int(270 * (rem_exact / 30.0))) 
-        if rem_exact <= 5.0:
-            ms = int(current_time * 4)
-            bar_color = "#ff3333" if ms % 2 == 0 else "black"
-        else:
-            bar_color = COLORS[COLOR_INDEX]
-            
-        progress_canvas.coords(progress_bar, 0, 0, bar_width, 4)
-        progress_canvas.itemconfig(progress_bar, fill=bar_color)
+    # Tính toán màu cảnh báo
+    if rem_exact <= 5.0:
+        ms = int(current_time * 4)
+        bar_color = "#ff3333" if ms % 2 == 0 else "black"
     else:
-        progress_canvas.itemconfig(progress_bar, fill="black")
+        bar_color = COLORS[COLOR_INDEX]
+
+    bar_width = max(0, int(130 * (rem_exact / 30.0))) 
+
+    # Cập nhật Thanh Tiến Trình 1 (Bên Trái)
+    if raw1 != "":
+        progress_canvas1.coords(progress_bar1, 0, 0, bar_width, 4)
+        progress_canvas1.itemconfig(progress_bar1, fill=bar_color)
+    else:
+        progress_canvas1.itemconfig(progress_bar1, fill="black")
+
+    # Cập nhật Thanh Tiến Trình 2 (Bên Phải)
+    if raw2 != "":
+        progress_canvas2.coords(progress_bar2, 0, 0, bar_width, 4)
+        progress_canvas2.itemconfig(progress_bar2, fill=bar_color)
+    else:
+        progress_canvas2.itemconfig(progress_bar2, fill="black")
 
     if not IS_MINIMIZED:
         root.lower()
         
     root.after(100, update_ui_loop)
 
-# --- XỬ LÝ KHAY HỆ THỐNG VÀ THỦ THUẬT PHÂN BIỆT CLICK ---
+# --- XỬ LÝ KHAY HỆ THỐNG VÀ DOUBLE CLICK ---
 def create_tray_image():
     image = Image.new('RGB', (64, 64), color='black')
     dc = ImageDraw.Draw(image)
@@ -246,15 +255,15 @@ def open_settings(event=None):
     if LOCKED: return 
     settings_win = tk.Toplevel(root)
     settings_win.title("Cài Đặt OTP")
-    settings_win.geometry("300x220") # Mở rộng chiều cao để chứa 2 ô
+    settings_win.geometry("300x220") 
     settings_win.attributes('-topmost', True)
     
-    tk.Label(settings_win, text="Secret Key 1 (Chính):").pack(pady=(10, 0))
+    tk.Label(settings_win, text="Secret Key 1 (Trái):").pack(pady=(10, 0))
     entry_secret1 = tk.Entry(settings_win, width=35)
     entry_secret1.insert(0, SECRET)
     entry_secret1.pack(pady=2)
 
-    tk.Label(settings_win, text="Secret Key 2 (Phụ - Tùy chọn):").pack(pady=(5, 0))
+    tk.Label(settings_win, text="Secret Key 2 (Phải):").pack(pady=(5, 0))
     entry_secret2 = tk.Entry(settings_win, width=35)
     entry_secret2.insert(0, SECRET2)
     entry_secret2.pack(pady=2)
@@ -297,9 +306,9 @@ def exit_app(event=None):
     if not LOCKED:
         root.destroy()
 
-# --- THIẾT LẬP WIDGET ---
+# --- THIẾT LẬP WIDGET ĐỐI XỨNG ---
 root = tk.Tk()
-root.geometry("345x70+100+100") # Kéo dài Widget ra thành 345px
+root.geometry("350x70+100+100") 
 root.overrideredirect(True) 
 
 root.configure(bg='black')
@@ -311,42 +320,43 @@ root.bind("<ButtonPress-1>", start_move)
 root.bind("<ButtonRelease-1>", stop_move)
 root.bind("<B1-Motion>", do_move)
 
-# BỐ TRÍ DẢI OTP KÉP (Dual OTP)
+# TÁCH 2 OTP SANG 2 BÊN CÁNH
+# OTP 1 (Bên Trái)
 label_otp1 = tk.Label(root, text="--- ---", font=OTP_FONT, fg=COLORS[COLOR_INDEX], bg="black")
 label_otp1.place(x=5, y=-2)
 
-# Đường phân cách mỏng chuyên nghiệp ở giữa 2 mã
-separator = tk.Frame(root, bg="#444444")
-separator.place(x=140, y=12, width=2, height=32)
+progress_canvas1 = tk.Canvas(root, width=130, height=4, bg="black", highlightthickness=0)
+progress_canvas1.place(x=5, y=52)
+progress_bar1 = progress_canvas1.create_rectangle(0, 0, 130, 4, fill=COLORS[COLOR_INDEX], outline="")
 
+# OTP 2 (Bên Phải)
 label_otp2 = tk.Label(root, text="--- ---", font=OTP_FONT, fg=COLORS[COLOR_INDEX], bg="black")
-label_otp2.place(x=146, y=-2)
+label_otp2.place(x=215, y=-2)
 
-# Thanh tiến trình dài 270px
-progress_canvas = tk.Canvas(root, width=270, height=4, bg="black", highlightthickness=0)
-progress_canvas.place(x=5, y=52)
-progress_bar = progress_canvas.create_rectangle(0, 0, 270, 4, fill=COLORS[COLOR_INDEX], outline="")
+progress_canvas2 = tk.Canvas(root, width=130, height=4, bg="black", highlightthickness=0)
+progress_canvas2.place(x=215, y=52)
+progress_bar2 = progress_canvas2.create_rectangle(0, 0, 130, 4, fill=COLORS[COLOR_INDEX], outline="")
 
-# Gán sự kiện cho từng thành phần
-for widget in [label_otp1, label_otp2, progress_canvas, separator]:
+# Gán sự kiện Kéo & Tắt cho cả 2 bên
+for widget in [label_otp1, label_otp2, progress_canvas1, progress_canvas2]:
     widget.bind("<Double-Button-1>", exit_app)
     widget.bind("<ButtonPress-1>", start_move)
 
-# --- BỐ TRÍ CỤM NÚT BẤM 2X2 (HITBOX CHUẨN PIXEL) ---
+# --- TRUNG TÂM ĐIỀU KHIỂN (CONTROL HUB Ở GIỮA) ---
 btn_settings = tk.Label(root, text="⚙", font=("Segoe UI", 12), fg="#aaaaaa", bg="black", cursor="hand2")
-btn_settings.place(x=280, y=5, width=28, height=28)
+btn_settings.place(x=145, y=5, width=28, height=28)
 btn_settings.bind("<Button-1>", open_settings)
 
 btn_color = tk.Label(root, text="🎨", font=("Segoe UI", 11), fg="#aaaaaa", bg="black", cursor="hand2")
-btn_color.place(x=312, y=5, width=28, height=28)
+btn_color.place(x=177, y=5, width=28, height=28)
 btn_color.bind("<Button-1>", cycle_color)
 
 btn_lock = tk.Label(root, text="🔒" if LOCKED else "🔓", font=("Segoe UI", 11), fg="#ff4444" if LOCKED else "#aaaaaa", bg="black", cursor="hand2")
-btn_lock.place(x=280, y=36, width=28, height=28)
+btn_lock.place(x=145, y=36, width=28, height=28)
 btn_lock.bind("<Button-1>", toggle_lock)
 
 btn_minimize = tk.Label(root, text="▼", font=("Segoe UI", 12), fg="#aaaaaa", bg="black", cursor="hand2")
-btn_minimize.place(x=312, y=36, width=28, height=28)
+btn_minimize.place(x=177, y=36, width=28, height=28)
 btn_minimize.bind("<Button-1>", minimize_app)
 
 update_ui_loop() 
