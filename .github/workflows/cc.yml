@@ -1,0 +1,35 @@
+name: Build Timekeep App (iamhisu)
+
+on:
+  push:
+    branches: [ "main", "master" ] # Tự động chạy khi push lên nhánh main hoặc master
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  build:
+    runs-on: windows-latest # Sử dụng máy chủ Windows của GitHub để build
+
+    steps:
+    - name: Tải mã nguồn về máy chủ
+      uses: actions/checkout@v4
+
+    - name: Cài đặt Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Cài đặt thư viện
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Đóng gói bằng PyInstaller
+      run: |
+        pyinstaller --onefile --windowed --icon=noface.ico --add-data "noface.ico;." app.py
+
+    - name: Xuất file .exe ra mục Artifacts để tải về
+      uses: actions/upload-artifact@v4
+      with:
+        name: iamhisu_Timekeep_App
+        path: dist/app.exe
