@@ -1,3 +1,5 @@
 pystray
 Pillow
 pyinstaller
+pandas
+openpyxl
