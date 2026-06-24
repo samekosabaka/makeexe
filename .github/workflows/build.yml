@@ -1,22 +1,32 @@
 name: Tự động Build theo tên File
 
+# Khai báo menu chạy thủ công
 on:
   workflow_dispatch:
     inputs:
       app_file:
-        description: 'Gõ tên file Python muốn đóng gói (VD: app.py, tool.py)'
+        description: '1. Gõ tên file Python cần build (VD: app.py)'
         required: true
         type: string
-        default: 'app.py' # Tên file gợi ý sẵn đỡ phải gõ nhiều
+        default: 'app.py'
+      exe_name:
+        description: '2. Đặt tên cho file .exe xuất ra (VD: ToolChamCong)'
+        required: true
+        type: string
+        default: 'PhanMemCuaToi'
 
 jobs:
   build:
     runs-on: windows-latest
 
     steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-python@v4
-      with: { python-version: '3.10' }
+    - name: Tải mã nguồn về máy chủ
+      uses: actions/checkout@v4
+
+    - name: Cài đặt môi trường Python
+      uses: actions/setup-python@v4
+      with: 
+        python-version: '3.11' # <--- ĐÃ NÂNG CẤP LÊN 3.11 ĐỂ TRÁNH LỖI PANDAS
 
     - name: AI Quét và cài thư viện tự động
       shell: bash
@@ -24,9 +34,9 @@ jobs:
         python -m pip install --upgrade pip
         pip install pyinstaller pipreqs
         
-        # Cách ly file bạn vừa gõ tên ra để quét thư viện
+        # Cách ly file bạn vừa gõ tên ra để AI quét thư viện
         mkdir temp_scan
-        cp ${{ inputs.app_file }} temp_scan/
+        cp "${{ inputs.app_file }}" temp_scan/
         pipreqs temp_scan/ --savepath temp_scan/reqs_auto.txt --force
         
         echo "=== THƯ VIỆN ĐƯỢC TỰ ĐỘNG CÀI ĐẶT ==="
@@ -36,11 +46,13 @@ jobs:
           pip install -r temp_scan/reqs_auto.txt
         fi
 
-    - name: Đóng gói
-      run: pyinstaller --onefile --windowed --icon=noface.ico --add-data "noface.ico;." ${{ inputs.app_file }}
+    - name: Đóng gói và Đổi tên file .exe
+      shell: bash
+      run: |
+        pyinstaller --onefile --windowed --icon=noface.ico --add-data "noface.ico;." --name "${{ inputs.exe_name }}" "${{ inputs.app_file }}"
 
     - name: Xuất file tải về
       uses: actions/upload-artifact@v4
       with:
-        name: EXE_${{ inputs.app_file }}
-        path: dist/*.exe
+        name: EXE_${{ inputs.exe_name }}
+        path: dist/${{ inputs.exe_name }}.exe
