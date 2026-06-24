@@ -1,11 +1,6 @@
 import tkinter as tk
 from tkinter import filedialog, ttk, messagebox
-import pandas as pd
 from datetime import datetime, timedelta
-from openpyxl import load_workbook, Workbook
-from openpyxl.styles import PatternFill, Border, Side, Alignment, Font
-from openpyxl.worksheet.datavalidation import DataValidation
-from openpyxl.utils import get_column_letter 
 import os
 import sys
 import ctypes 
@@ -150,6 +145,7 @@ class TimekeepApp:
         self.df_result = None
         self.df_xp_result = None
         self.current_theme = "Sáng"
+        self.is_pinned = False
 
         style = ttk.Style()
         style.theme_use("clam")
@@ -160,19 +156,9 @@ class TimekeepApp:
         style.configure("TNotebook", background="#f0f0f0")
         style.configure("TNotebook.Tab", padding=[15, 5], font=('Arial', 10, 'bold'))
 
-        frame_global = tk.Frame(self.root)
-        frame_global.pack(fill=tk.X, padx=10, pady=5)
-        
-        self.btn_theme = tk.Button(frame_global, text="🎨 Giao diện: Sáng", width=20, command=self.toggle_theme, bg="#e0e0e0", font=("Arial", 9, "bold"), cursor="hand2")
-        self.btn_theme.pack(side=tk.RIGHT, padx=5)
-        
-        frame_opacity = tk.Frame(frame_global)
-        frame_opacity.pack(side=tk.RIGHT, padx=10)
-        self.lbl_opacity = tk.Label(frame_opacity, text="Độ trong suốt:", font=("Arial", 8))
-        self.lbl_opacity.pack(side=tk.LEFT)
-        self.opacity_slider = ttk.Scale(frame_opacity, from_=0.2, to=1.0, value=1.0, command=self.change_opacity)
-        self.opacity_slider.pack(side=tk.LEFT, padx=5)
-
+        # =========================================================================
+        # --- UI MỚI: ĐẶT NOTEBOOK LÊN TRƯỚC ĐỂ LÀM NỀN ---
+        # =========================================================================
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
@@ -182,10 +168,32 @@ class TimekeepApp:
         self.notebook.add(self.tab_chamcong, text="🕒 Chấm Công")
         self.notebook.add(self.tab_xinphep, text="📝 Xin Phép")
 
+        # =========================================================================
+        # --- UI MỚI: KHUNG TRÔI TỰ DO (FLOATING CONTROLS) CÙNG HÀNG VỚI TAB ---
+        # =========================================================================
+        self.control_frame = tk.Frame(self.root)
+        self.control_frame.place(relx=1.0, y=6, anchor="ne", x=-10)
+
+        # Nút Ghim (Pin on top)
+        self.btn_pin = tk.Button(self.control_frame, text="📌 Ghim: TẮT", width=12, command=self.toggle_pin, bg="#e0e0e0", font=("Arial", 8, "bold"), cursor="hand2")
+        self.btn_pin.pack(side=tk.RIGHT, padx=(5, 0))
+
+        # Nút Đổi Theme
+        self.btn_theme = tk.Button(self.control_frame, text="🎨 Giao diện: Sáng", width=16, command=self.toggle_theme, bg="#e0e0e0", font=("Arial", 8, "bold"), cursor="hand2")
+        self.btn_theme.pack(side=tk.RIGHT, padx=5)
+
+        # Thanh Opacity
+        frame_opacity = tk.Frame(self.control_frame)
+        frame_opacity.pack(side=tk.RIGHT, padx=5)
+        self.lbl_opacity = tk.Label(frame_opacity, text="Độ mờ:", font=("Arial", 8, "bold"))
+        self.lbl_opacity.pack(side=tk.LEFT)
+        self.opacity_slider = ttk.Scale(frame_opacity, from_=0.2, to=1.0, value=1.0, command=self.change_opacity)
+        self.opacity_slider.pack(side=tk.LEFT, padx=2)
+
 
         # ==================== TAB 1: CHẤM CÔNG ====================
         frame_top = tk.Frame(self.tab_chamcong, pady=5)
-        frame_top.pack(fill=tk.X)
+        frame_top.pack(fill=tk.X, pady=(15, 0))
 
         tk.Label(frame_top, text="1. File zkt:").grid(row=0, column=0, padx=10, pady=5, sticky="e")
         self.lbl_file1 = tk.Label(frame_top, text="Chưa chọn file", width=35, anchor="w", bg="white", relief="sunken")
@@ -255,7 +263,7 @@ class TimekeepApp:
         
         # ==================== TAB 2: XIN PHÉP ====================
         frame_top_xp = tk.Frame(self.tab_xinphep, pady=20)
-        frame_top_xp.pack(fill=tk.X)
+        frame_top_xp.pack(fill=tk.X, pady=(15, 0))
 
         tk.Label(frame_top_xp, text="1. Dữ liệu đầu vào:").grid(row=0, column=0, padx=10, pady=5, sticky="e")
         self.lbl_file_xp = tk.Label(frame_top_xp, text="Chưa chọn file", width=40, anchor="w", bg="white", relief="sunken")
@@ -283,9 +291,21 @@ class TimekeepApp:
 
         self.apply_theme("Sáng")
 
-    # --- LOGIC GIAO DIỆN & TRONG SUỐT ---
+    # =========================================================================
+    # --- LOGIC GIAO DIỆN: OPACITY, THEME & PIN ---
+    # =========================================================================
     def change_opacity(self, val):
         self.root.attributes('-alpha', float(val))
+
+    def toggle_pin(self):
+        self.is_pinned = not self.is_pinned
+        self.root.attributes('-topmost', self.is_pinned)
+        
+        if self.is_pinned:
+            self.btn_pin.config(text="📌 Ghim: BẬT", bg="#ff9999", fg="black")
+        else:
+            self.btn_pin.config(text="📌 Ghim: TẮT")
+            self.apply_theme(self.current_theme)
 
     def toggle_theme(self):
         themes = ["Sáng", "Tối", "Trong suốt"]
@@ -344,6 +364,8 @@ class TimekeepApp:
                     c_text = widget.cget('text') if hasattr(widget, 'cget') else ''
                     if c_text in ["Bắt đầu Xử lý", "Xuất Bảng Dữ Liệu", "Xuất Theo Form Cố Định", "↻ Xóa Lọc / Tải Lại", "Xuất kết quả", "Xử lý dữ liệu"]:
                         pass 
+                    elif "📌 Ghim: BẬT" in c_text:
+                        widget.configure(bg="#ff9999", fg="black")
                     else:
                         widget.configure(bg=bg_btn, fg=fg_main)
             except Exception:
@@ -369,6 +391,7 @@ class TimekeepApp:
             self.lbl_file_xp.config(text=self.file_xp_path.split('/')[-1])
             
     def process_xp(self):
+        import pandas as pd
         if not self.file_xp_path:
             messagebox.showwarning("Cảnh báo", "Vui lòng chọn file dữ liệu đầu vào trước!")
             return
@@ -382,7 +405,6 @@ class TimekeepApp:
                 messagebox.showerror("Lỗi dữ liệu", f"File đầu vào thiếu các cột sau:\n{', '.join(missing)}")
                 return
 
-            # --- TẠO TỪ ĐIỂN TRA CỨU CA LÀM VIỆC CỦA NGÀY HÔM SAU ---
             shift_dict = {}
             for idx, row in df.iterrows():
                 m_val = str(row.get('Mã số nhân viên', '')).strip()
@@ -391,7 +413,6 @@ class TimekeepApp:
                 
                 if m_val and pd.notna(d_val):
                     try:
-                        # Dùng bóc tách chuỗi tay để nội suy ngày chuẩn cho Shift_dict
                         d_str = str(d_val).split(' ')[0]
                         if '-' in d_str: d_p = d_str.split('-')
                         elif '/' in d_str: d_p = d_str.split('/')
@@ -406,7 +427,6 @@ class TimekeepApp:
                     except:
                         pass
 
-            # Lọc chỉ dòng "phải"
             df = df[df['Bất thường chấm công'].astype(str).str.strip().str.lower() == 'phải'].copy()
 
             def get_shift_times(base_date, shift_name):
@@ -437,16 +457,12 @@ class TimekeepApp:
                 if mins < 30: return dt.replace(minute=0, second=0, microsecond=0)
                 return dt.replace(minute=30, second=0, microsecond=0)
 
-            # ========================================================
-            # BƯỚC 2: XỬ LÝ NGÀY & GIỜ (BẢO TOÀN ĐỊNH DẠNG - CÓ BỘ NHỚ TẠM)
-            # ========================================================
             def parse_time_with_temp_memory(t_val):
                 if pd.isna(t_val): return None, ""
                 s = str(t_val).strip()
                 if s in ['nan', 'None', 'NaT', '']: return None, ""
                 
                 try:
-                    # LƯU VÀO BỘ NHỚ TẠM
                     temp_memory = {
                         'year': '', 'month': '', 'day': '',
                         'hour': '', 'minute': '', 'second': ''
@@ -457,40 +473,30 @@ class TimekeepApp:
                         d_part = parts[0]
                         t_part = parts[1]
                         
-                        # Tách phần ngày
                         if '-' in d_part: d_split = d_part.split('-')
                         elif '/' in d_part: d_split = d_part.split('/')
                         else: d_split = []
                             
                         if len(d_split) == 3:
-                            if len(d_split[0]) == 4: # yyyy-mm-dd
+                            if len(d_split[0]) == 4: 
                                 temp_memory['year'] = d_split[0]
                                 temp_memory['month'] = d_split[1].zfill(2)
                                 temp_memory['day'] = d_split[2].zfill(2)
-                            elif len(d_split[2]) == 4: # dd-mm-yyyy
+                            elif len(d_split[2]) == 4: 
                                 temp_memory['day'] = d_split[0].zfill(2)
                                 temp_memory['month'] = d_split[1].zfill(2)
                                 temp_memory['year'] = d_split[2]
                                 
-                        # Tách phần giờ
                         t_split = t_part.split(':')
                         if len(t_split) >= 2:
                             temp_memory['hour'] = t_split[0].zfill(2)
                             temp_memory['minute'] = t_split[1].zfill(2)
-                            if len(t_split) >= 3:
-                                temp_memory['second'] = t_split[2]
                                 
-                        # Ráp lại chuỗi (Cắt bỏ phần giây) theo form YYYY-MM-DD HH:MM
                         if temp_memory['year'] and temp_memory['hour']:
                             final_str = f"{temp_memory['year']}-{temp_memory['month']}-{temp_memory['day']} {temp_memory['hour']}:{temp_memory['minute']}"
-                            
-                            # Tạo đối tượng datetime ĐỂ MÁY TÍNH TOÁN SO SÁNH TRỄ SỚM
                             dt_obj = datetime(
-                                int(temp_memory['year']), 
-                                int(temp_memory['month']), 
-                                int(temp_memory['day']), 
-                                int(temp_memory['hour']), 
-                                int(temp_memory['minute'])
+                                int(temp_memory['year']), int(temp_memory['month']), int(temp_memory['day']), 
+                                int(temp_memory['hour']), int(temp_memory['minute'])
                             )
                             return dt_obj, final_str
                 except Exception:
@@ -504,16 +510,13 @@ class TimekeepApp:
                 raw_date = row['Ngày']
                 shift_name = row['Số ca làm việc trong ngày']
                 
-                # --- LẤY DỮ LIỆU QUA BỘ NHỚ TẠM ---
                 t_in_dt, t_in_str = parse_time_with_temp_memory(row['Thời gian quẹt thẻ lên ca'])
                 t_out_dt, t_out_str = parse_time_with_temp_memory(row['Thời gian quẹt thẻ xuống ca'])
 
-                # Bê nguyên xi dữ liệu ngày gốc
                 date_out = str(raw_date).strip()
                 if date_out in ['nan', 'NaT', 'None']: date_out = ""
                 if date_out.endswith(" 00:00:00"): date_out = date_out.replace(" 00:00:00", "")
 
-                # Tính true_date để kiểm tra Ca làm việc
                 true_date = None
                 if t_in_dt:
                     true_date = t_in_dt.date()
@@ -523,7 +526,6 @@ class TimekeepApp:
                         if t_out_dt.hour < 12: 
                             true_date = true_date - timedelta(days=1)
                 else:
-                    # Fallback tìm true_date nếu nghỉ trọn ngày không quẹt vân tay
                     try:
                         d_str_temp = str(raw_date).strip().split(' ')[0]
                         if '-' in d_str_temp: d_parts = d_str_temp.split('-')
@@ -548,9 +550,6 @@ class TimekeepApp:
                 is_empty_in = t_in_dt is None
                 is_empty_out = t_out_dt is None
 
-                # ========================================================
-                # LUỒNG LOGIC TÍNH PHÉP VỚI CÁC RECORD LƯU TẠM
-                # ========================================================
                 records_for_this_row = []
 
                 if is_empty_in and is_empty_out:
@@ -576,25 +575,19 @@ class TimekeepApp:
                     else:
                         records_for_this_row.append(('ACTR VIỆC RIÊNG', t_in_str, t_out_str, False))
 
-
-                # ========================================================
-                # LUỒNG LOOKAHEAD (KIỂM TRA CHUYỂN CA HÔM SAU VÀ GHI ĐÈ)
-                # ========================================================
                 curr_shift = str(shift_name).upper()
                 is_target_hc = "HC" in curr_shift or "HÀNH CHÍNH" in curr_shift
                 next_date = true_date + timedelta(days=1)
                 next_shift = shift_dict.get((msnv, next_date), "")
                 is_next_ca3 = "CA 3" in next_shift or "ĐÊM" in next_shift
 
-                # Ghi đè thành Phép năm nếu mai chuyển Ca 3
                 if (is_empty_in or is_empty_out) and is_target_hc and is_next_ca3:
                     records_for_this_row = [('ACTR PHÉP NĂM', shift_start.strftime("%Y-%m-%d %H:%M"), shift_end.strftime("%Y-%m-%d %H:%M"), False)]
 
-                # Nạp vào kết quả cuối cùng
                 for loai_phep, start_val, end_val, is_extra in records_for_this_row:
                     new_rows.append({
                         'MSNV': msnv,
-                        'Ngày': date_out, # Ngày gốc tuyệt đối bảo toàn
+                        'Ngày': date_out, 
                         '*Loại hình xin phép': loai_phep,
                         '*Thời gian bắt đầu xin phép': start_val,
                         '*Thời gian kết thúc xin phép': end_val,
@@ -628,6 +621,12 @@ class TimekeepApp:
             messagebox.showerror("Lỗi", f"Có lỗi xảy ra trong lúc xử lý:\n{str(e)}")
 
     def export_xp(self):
+        import pandas as pd
+        from openpyxl import Workbook
+        from openpyxl.styles import PatternFill, Border, Side, Font
+        from openpyxl.worksheet.datavalidation import DataValidation
+        from openpyxl.utils import get_column_letter
+
         if self.df_xp_result is None or self.df_xp_result.empty:
             messagebox.showwarning("Cảnh báo", "Bạn chưa Xử lý dữ liệu. Không có gì để xuất!")
             return
@@ -723,6 +722,7 @@ class TimekeepApp:
     # --- CÁC HÀM CŨ CHO TAB 1: CHẤM CÔNG ---
     # =========================================================================
     def select_file1(self):
+        import pandas as pd
         self.file1_path = filedialog.askopenfilename(filetypes=[("Excel & CSV Files", "*.xlsx *.xls *.csv")])
         if self.file1_path:
             if self.file1_path.lower().endswith('.xls'):
@@ -760,6 +760,7 @@ class TimekeepApp:
             self.lbl_file2.config(text=self.file2_path.split('/')[-1])
 
     def read_file(self, path):
+        import pandas as pd
         encodings = ['utf-8', 'utf-8-sig', 'cp1258', 'latin1', 'utf-16']
         if path.lower().endswith('.csv'):
             for enc in encodings:
@@ -875,6 +876,7 @@ class TimekeepApp:
 
 
     def process_data(self):
+        import pandas as pd
         if not self.file1_path or not self.file2_path:
             messagebox.showwarning("Cảnh báo", "Vui lòng chọn đủ cả 2 file!")
             return
@@ -1222,6 +1224,10 @@ class TimekeepApp:
         return f"{prefix}_{date_str}.xlsx"
 
     def export_excel(self):
+        import pandas as pd
+        from openpyxl import load_workbook
+        from openpyxl.styles import PatternFill, Border, Side
+        
         if self.df_result is None or self.df_result.empty:
             messagebox.showwarning("Cảnh báo", "Không có dữ liệu để xuất!")
             return
@@ -1239,6 +1245,7 @@ class TimekeepApp:
                 for col in df_export.columns:
                     df_export[col] = df_export[col].apply(lambda x: None if str(x).strip() in ['nan', 'None', 'NaT', ''] else x)
                 
+                df_export['Kết Quả Công'] = pd.to_numeric(df_export['Kết Quả Công'], errors='ignore')
                 df_export.to_excel(save_path, index=False)
                 
                 wb = load_workbook(save_path)
@@ -1291,6 +1298,11 @@ class TimekeepApp:
                 messagebox.showerror("Lỗi", f"Lỗi khi lưu và định dạng file:\n{str(e)}")
 
     def export_fixed_form(self):
+        import pandas as pd
+        from openpyxl import Workbook
+        from openpyxl.styles import PatternFill, Border, Side, Alignment, Font
+        from openpyxl.utils import get_column_letter
+
         if self.df_result is None or self.df_result.empty:
             messagebox.showwarning("Cảnh báo", "Bạn chưa xử lý dữ liệu!")
             return
