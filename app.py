@@ -6,6 +6,7 @@ import sys
 import ctypes 
 import warnings
 import threading
+import random
 
 # --- TẮT CÁC CẢNH BÁO (WARNINGS) KHÔNG CẦN THIẾT TRÊN TERMINAL ---
 warnings.filterwarnings('ignore', category=UserWarning)
@@ -398,9 +399,9 @@ class TimekeepApp:
             
         try:
             pd.read_excel(file_path)
-            return file_path # File Excel thật, không cần làm gì
+            return file_path 
         except Exception:
-            pass # File giả mạo -> Tiến hành quy trình Save As
+            pass 
             
         try:
             encodings = ['utf-8', 'utf-8-sig', 'utf-16le', 'utf-16', 'cp1258', 'latin1']
@@ -420,7 +421,6 @@ class TimekeepApp:
                     break
                     
             if df_converted is None:
-                # Nếu ZKTime xuất dạng HTML (Web)
                 try:
                     dfs = pd.read_html(file_path, encoding='utf-8')
                     if dfs:
@@ -1465,7 +1465,7 @@ def load_heavy_libraries():
         pass
 
 # =========================================================================
-# --- HÀM TẠO MÀN HÌNH SPLASH ĐỘNG (CÓ HÌNH GIF & % LOADING) ---
+# --- HÀM TẠO MÀN HÌNH SPLASH ĐỘNG (CÓ HÌNH RANDOM GIF & % LOADING) ---
 # =========================================================================
 def show_splash_and_start():
     global global_mutex
@@ -1475,19 +1475,26 @@ def show_splash_and_start():
     splash.overrideredirect(True)
     splash.attributes('-topmost', True)
 
-    width = 400
-    height = 320
+    # Đã nới rộng Splash Screen để nhét vừa ảnh tối đa 500x500 + Chữ và Bar
+    width = 520
+    height = 620
     x = (splash.winfo_screenwidth() // 2) - (width // 2)
     y = (splash.winfo_screenheight() // 2) - (height // 2)
     splash.geometry(f'{width}x{height}+{x}+{y}')
     splash.configure(bg="#2b2b2b")
 
-    # 1. Đọc và Nạp khung hình của file loading.gif
+    # 1. Quay số ngẫu nhiên để chọn 1 trong 6 ảnh (ld1.gif -> ld6.gif)
+    gif_name = f"ld{random.randint(1, 6)}.gif"
+    gif_path = resource_path(gif_name)
+    
+    # Nếu file ngẫu nhiên không có, thử tìm loading.gif làm phương án dự phòng
+    if not os.path.exists(gif_path):
+        gif_path = resource_path("loading.gif")
+
     lbl_gif = tk.Label(splash, bg="#2b2b2b")
-    lbl_gif.pack(pady=(20, 10))
+    lbl_gif.pack(pady=(15, 10))
     
     frames = []
-    gif_path = resource_path("loading.gif")
     if os.path.exists(gif_path):
         try:
             i = 0
@@ -1505,7 +1512,7 @@ def show_splash_and_start():
     if frames:
         animate_gif(0)
     else:
-        lbl_gif.config(text="[Đang xử lý hình ảnh...]", fg="white", font=("Arial", 10, "italic"))
+        lbl_gif.config(text=f"[Không tìm thấy file {gif_name}]", fg="white", font=("Arial", 10, "italic"))
 
     # 2. Trang trí Giao diện Splash (Chữ và Thanh Process)
     tk.Label(splash, text="TIMEKEEP (iamhisu)", font=("Arial", 16, "bold"), bg="#2b2b2b", fg="#00ffcc").pack(pady=5)
