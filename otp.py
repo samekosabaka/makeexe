@@ -13,7 +13,7 @@ CONFIG_FILE = os.path.join(APP_DIR, "config.json")
 # 1. KHÓA CỨNG PHẦN CỨNG (HARDWARE BINDING)
 # Thay chuỗi bên dưới bằng MachineGuid của máy tính ĐƯỢC PHÉP CHẠY
 # =======================================================
-ALLOWED_PC_HWID = "DÁN-MÃ-MACHINE-GUID-CỦA-MÁY-CÔNG-TY-VÀO-ĐÂY"
+ALLOWED_PC_HWID = "52bcaeb8-bdc1-46c6-a2a2-b0a2692330ed"
 
 def get_hwid():
     try:
