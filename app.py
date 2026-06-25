@@ -214,7 +214,7 @@ class TimekeepApp:
         frame_hints = tk.Frame(frame_top)
         frame_hints.grid(row=0, column=4, rowspan=2, padx=10, sticky="w")
         tk.Label(frame_hints, text="(MẸO: Nhấp đúp chuột vào cột Timetable để sửa tên Ca và tính lại dữ liệu)", fg="red", font=("Arial", 9, "italic")).pack(anchor="w")
-        tk.Label(frame_hints, text="(HỆ THỐNG: Đã tích hợp bộ lõi AI tự động đọc file Excel ZKTime giả mạo.)", fg="blue", font=("Arial", 9, "italic")).pack(anchor="w")
+        tk.Label(frame_hints, text="(HỆ THỐNG: Đã tích hợp AI tự động Save As đối với file Excel giả mạo)", fg="blue", font=("Arial", 9, "bold")).pack(anchor="w")
 
         frame_filter = tk.Frame(self.tab_chamcong, pady=5)
         frame_filter.pack(fill=tk.X, padx=10)
@@ -387,13 +387,100 @@ class TimekeepApp:
         self.tree_xp.tag_configure('evenrow', background=bg_main, foreground=fg_main)
 
     # =========================================================================
-    # --- LOGIC CHO TAB 2: XIN PHÉP ---
+    # --- LOGIC TỰ ĐỘNG SAVE AS FILE ẢO CỦA ZKTIME ---
     # =========================================================================
-    def select_file_xp(self):
-        self.file_xp_path = filedialog.askopenfilename(filetypes=[("Excel & CSV Files", "*.xlsx *.xls *.csv")])
-        if self.file_xp_path:
-            self.lbl_file_xp.config(text=self.file_xp_path.split('/')[-1])
+    def auto_save_as_xlsx(self, file_path):
+        import pandas as pd
+        import os
+        
+        if not file_path.lower().endswith('.xls'):
+            return file_path
             
+        try:
+            pd.read_excel(file_path)
+            return file_path # File Excel thật, không cần làm gì
+        except Exception:
+            pass # File giả mạo -> Tiến hành quy trình Save As
+            
+        try:
+            encodings = ['utf-8', 'utf-8-sig', 'utf-16le', 'utf-16', 'cp1258', 'latin1']
+            seps = [',', '\t', ';']
+            df_converted = None
+            
+            for enc in encodings:
+                for sep in seps:
+                    try:
+                        temp_df = pd.read_csv(file_path, sep=sep, encoding=enc, dtype=str, on_bad_lines='skip')
+                        if len(temp_df.columns) > 3:
+                            df_converted = temp_df
+                            break
+                    except:
+                        continue
+                if df_converted is not None:
+                    break
+                    
+            if df_converted is None:
+                # Nếu ZKTime xuất dạng HTML (Web)
+                try:
+                    dfs = pd.read_html(file_path, encoding='utf-8')
+                    if dfs:
+                        df_converted = dfs[0].astype(str)
+                except:
+                    pass
+
+            if df_converted is not None:
+                dir_name = os.path.dirname(file_path)
+                base_name = os.path.basename(file_path)
+                new_name = base_name[:-4] + "_SaveAs.xlsx"
+                new_path = os.path.join(dir_name, new_name)
+                
+                df_converted.to_excel(new_path, index=False)
+                messagebox.showinfo("Tự động Save As", f"Hệ thống phát hiện '{base_name}' là file ZKTime ảo.\nĐã tự động 'Save As' tạo ra file chuẩn tại:\n{new_name}")
+                return new_path
+        except Exception:
+            pass
+            
+        messagebox.showwarning("Cảnh báo", "Hệ thống không thể tự động Save As file này. Vui lòng mở bằng Excel và lưu lại thủ công.")
+        return file_path
+
+
+    # =========================================================================
+    # --- CÁC HÀM SELECT FILE (ĐÃ TÍCH HỢP AUTO SAVE AS) ---
+    # =========================================================================
+    def select_file1(self):
+        path = filedialog.askopenfilename(filetypes=[("Excel & CSV Files", "*.xlsx *.xls *.csv")])
+        if path:
+            self.file1_path = self.auto_save_as_xlsx(path)
+            self.lbl_file1.config(text=self.file1_path.split('/')[-1])
+
+    def select_file2(self):
+        path = filedialog.askopenfilename(filetypes=[("Excel & CSV Files", "*.xlsx *.xls *.csv")])
+        if path:
+            self.file2_path = self.auto_save_as_xlsx(path)
+            self.lbl_file2.config(text=self.file2_path.split('/')[-1])
+            
+    def select_file_xp(self):
+        path = filedialog.askopenfilename(filetypes=[("Excel & CSV Files", "*.xlsx *.xls *.csv")])
+        if path:
+            self.file_xp_path = self.auto_save_as_xlsx(path)
+            self.lbl_file_xp.config(text=self.file_xp_path.split('/')[-1])
+
+    # =========================================================================
+    # --- CÁC HÀM CŨ ĐÃ ĐƯỢC LÀM SẠCH ---
+    # =========================================================================
+    def read_file(self, path):
+        import pandas as pd
+        if path.lower().endswith('.csv'):
+            encodings = ['utf-8', 'utf-8-sig', 'utf-16le', 'cp1258', 'latin1']
+            for enc in encodings:
+                try:
+                    return pd.read_csv(path, dtype=str, encoding=enc)
+                except:
+                    continue
+            return pd.read_csv(path, dtype=str, encoding='latin1')
+        else:
+            return pd.read_excel(path, dtype=str)
+
     def process_xp(self):
         import pandas as pd
         if not self.file_xp_path:
@@ -401,7 +488,6 @@ class TimekeepApp:
             return
 
         try:
-            # SỬ DỤNG HÀM READ_FILE NỘI SOI MỚI NÂNG CẤP
             df = self.read_file(self.file_xp_path)
 
             req_cols = ['Bất thường chấm công', 'Mã số nhân viên', 'Ngày', 'Thời gian quẹt thẻ lên ca', 'Thời gian quẹt thẻ xuống ca', 'Số ca làm việc trong ngày']
@@ -722,56 +808,6 @@ class TimekeepApp:
             
         except Exception as e:
             messagebox.showerror("Lỗi", f"Đã xảy ra lỗi khi lưu file:\n{str(e)}")
-
-    # =========================================================================
-    # --- CÁC HÀM CŨ CHO TAB 1: CHẤM CÔNG ---
-    # =========================================================================
-    def select_file1(self):
-        self.file1_path = filedialog.askopenfilename(filetypes=[("Excel & CSV Files", "*.xlsx *.xls *.csv")])
-        if self.file1_path:
-            self.lbl_file1.config(text=self.file1_path.split('/')[-1])
-
-    def select_file2(self):
-        self.file2_path = filedialog.askopenfilename(filetypes=[("Excel & CSV Files", "*.xlsx *.xls *.csv")])
-        if self.file2_path:
-            self.lbl_file2.config(text=self.file2_path.split('/')[-1])
-
-    def read_file(self, path):
-        import pandas as pd
-        path_lower = path.lower()
-
-        # 1. ĐỌC FILE CSV CHUẨN
-        if path_lower.endswith('.csv'):
-            encodings = ['utf-8', 'utf-8-sig', 'utf-16', 'utf-16le', 'cp1258', 'latin1']
-            for enc in encodings:
-                try:
-                    return pd.read_csv(path, dtype=str, encoding=enc)
-                except:
-                    continue
-            return pd.read_csv(path, dtype=str, encoding='latin1')
-
-        # 2. XỬ LÝ FILE EXCEL VÀ "EXCEL GIẢ MẠO" TỪ ZKTIME
-        try:
-            # Thử đọc như file Excel bình thường trước
-            return pd.read_excel(path, dtype=str)
-        except Exception as e:
-            # Rơi vào đây tức là Excel báo lỗi cấu trúc -> File giả mạo
-            # Bật hệ thống NỘI SOI tàng hình: Đọc nó như một file Text/CSV
-            encodings_to_try = ['utf-16le', 'utf-8', 'utf-8-sig', 'cp1258', 'latin1']
-            seps_to_try = ['\t', ',', ';'] # Tab hoặc phẩy
-            
-            for enc in encodings_to_try:
-                for sep in seps_to_try:
-                    try:
-                        df = pd.read_csv(path, sep=sep, encoding=enc, dtype=str, on_bad_lines='skip')
-                        # Nếu đọc ra được nhiều hơn 3 cột -> Chắc chắn đúng định dạng
-                        if len(df.columns) > 3:
-                            return df
-                    except:
-                        continue
-                        
-            raise ValueError("Cấu trúc file ZKTeco quá lạ, hệ thống không thể tự động giải mã. Bạn hãy mở file bằng Excel và bấm Save As thành .xlsx chuẩn nhé!")
-
 
     def on_double_click(self, event):
         if self.df_result is None or self.df_result.empty: return
