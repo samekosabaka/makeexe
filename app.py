@@ -5,9 +5,13 @@ import os
 import sys
 import ctypes 
 import warnings
+import threading
 
 # --- TẮT CÁC CẢNH BÁO (WARNINGS) KHÔNG CẦN THIẾT TRÊN TERMINAL ---
 warnings.filterwarnings('ignore', category=UserWarning)
+
+# --- GIỮ KẾT NỐI MUTEX ĐỂ KHÔNG BỊ RÁC BỘ NHỚ ---
+global_mutex = None
 
 def resource_path(relative_path):
     try:
@@ -210,7 +214,7 @@ class TimekeepApp:
         frame_hints = tk.Frame(frame_top)
         frame_hints.grid(row=0, column=4, rowspan=2, padx=10, sticky="w")
         tk.Label(frame_hints, text="(MẸO: Nhấp đúp chuột vào cột Timetable để sửa tên Ca và tính lại dữ liệu)", fg="red", font=("Arial", 9, "italic")).pack(anchor="w")
-        tk.Label(frame_hints, text="(HƯỚNG DẪN: Hãy mở file ZKT bằng Excel và chọn Save As thành định dạng .xlsx chuẩn)", fg="red", font=("Arial", 9, "italic")).pack(anchor="w")
+        tk.Label(frame_hints, text="(HỆ THỐNG: Đã tích hợp bộ lõi AI tự động đọc file Excel ZKTime giả mạo.)", fg="blue", font=("Arial", 9, "italic")).pack(anchor="w")
 
         frame_filter = tk.Frame(self.tab_chamcong, pady=5)
         frame_filter.pack(fill=tk.X, padx=10)
@@ -397,6 +401,7 @@ class TimekeepApp:
             return
 
         try:
+            # SỬ DỤNG HÀM READ_FILE NỘI SOI MỚI NÂNG CẤP
             df = self.read_file(self.file_xp_path)
 
             req_cols = ['Bất thường chấm công', 'Mã số nhân viên', 'Ngày', 'Thời gian quẹt thẻ lên ca', 'Thời gian quẹt thẻ xuống ca', 'Số ca làm việc trong ngày']
@@ -722,36 +727,8 @@ class TimekeepApp:
     # --- CÁC HÀM CŨ CHO TAB 1: CHẤM CÔNG ---
     # =========================================================================
     def select_file1(self):
-        import pandas as pd
         self.file1_path = filedialog.askopenfilename(filetypes=[("Excel & CSV Files", "*.xlsx *.xls *.csv")])
         if self.file1_path:
-            if self.file1_path.lower().endswith('.xls'):
-                try:
-                    pd.read_excel(self.file1_path)
-                except Exception:
-                    converted = False
-                    df_temp = None
-                    encodings = ['utf-8', 'utf-8-sig', 'utf-16', 'utf-16-le', 'cp1258', 'latin1']
-                    seps = ['\t', ',', ';'] 
-                    
-                    for enc in encodings:
-                        for sep in seps:
-                            try:
-                                df_temp = pd.read_csv(self.file1_path, sep=sep, encoding=enc, dtype=str)
-                                if len(df_temp.columns) > 3:
-                                    converted = True
-                                    break
-                            except: pass
-                        if converted: break
-                    
-                    if converted and df_temp is not None:
-                        new_path = self.file1_path + "x"
-                        df_temp.to_excel(new_path, index=False)
-                        self.file1_path = new_path
-                        messagebox.showinfo("Tự động sửa lỗi", "Phát hiện File ZKT là định dạng giả mạo (CSV).\nPhần mềm đã tự động chuyển đổi thành file chuẩn (.xlsx) và nạp vào hệ thống!")
-                    else:
-                        messagebox.showwarning("Cảnh báo", "File ZKTeco quá cũ hoặc bị lỗi nặng, vui lòng mở file lên và chọn Save As thành .xlsx thủ công.")
-
             self.lbl_file1.config(text=self.file1_path.split('/')[-1])
 
     def select_file2(self):
@@ -761,32 +738,40 @@ class TimekeepApp:
 
     def read_file(self, path):
         import pandas as pd
-        encodings = ['utf-8', 'utf-8-sig', 'cp1258', 'latin1', 'utf-16']
-        if path.lower().endswith('.csv'):
+        path_lower = path.lower()
+
+        # 1. ĐỌC FILE CSV CHUẨN
+        if path_lower.endswith('.csv'):
+            encodings = ['utf-8', 'utf-8-sig', 'utf-16', 'utf-16le', 'cp1258', 'latin1']
             for enc in encodings:
                 try:
                     return pd.read_csv(path, dtype=str, encoding=enc)
                 except:
                     continue
             return pd.read_csv(path, dtype=str, encoding='latin1')
-        else:
-            try:
-                return pd.read_excel(path, dtype=str)
-            except ValueError as ve:
-                if "Excel file format cannot be determined" in str(ve):
-                    for enc in encodings:
-                        try:
-                            return pd.read_csv(path, dtype=str, sep=None, engine='python', encoding=enc)
-                        except:
-                            continue
-                    for enc in encodings:
-                        try:
-                            return pd.read_csv(path, dtype=str, sep='\t', engine='python', encoding=enc)
-                        except:
-                            continue
-                    raise ValueError("Không thể đọc được cấu trúc file. Hãy mở file bằng Excel và chọn Save As lại thành định dạng .xlsx chuẩn.")
-                else:
-                    raise ve
+
+        # 2. XỬ LÝ FILE EXCEL VÀ "EXCEL GIẢ MẠO" TỪ ZKTIME
+        try:
+            # Thử đọc như file Excel bình thường trước
+            return pd.read_excel(path, dtype=str)
+        except Exception as e:
+            # Rơi vào đây tức là Excel báo lỗi cấu trúc -> File giả mạo
+            # Bật hệ thống NỘI SOI tàng hình: Đọc nó như một file Text/CSV
+            encodings_to_try = ['utf-16le', 'utf-8', 'utf-8-sig', 'cp1258', 'latin1']
+            seps_to_try = ['\t', ',', ';'] # Tab hoặc phẩy
+            
+            for enc in encodings_to_try:
+                for sep in seps_to_try:
+                    try:
+                        df = pd.read_csv(path, sep=sep, encoding=enc, dtype=str, on_bad_lines='skip')
+                        # Nếu đọc ra được nhiều hơn 3 cột -> Chắc chắn đúng định dạng
+                        if len(df.columns) > 3:
+                            return df
+                    except:
+                        continue
+                        
+            raise ValueError("Cấu trúc file ZKTeco quá lạ, hệ thống không thể tự động giải mã. Bạn hãy mở file bằng Excel và bấm Save As thành .xlsx chuẩn nhé!")
+
 
     def on_double_click(self, event):
         if self.df_result is None or self.df_result.empty: return
@@ -1420,16 +1405,177 @@ class TimekeepApp:
         except Exception as e:
             messagebox.showerror("Lỗi", f"Lỗi khi xuất Form:\n{str(e)}")
 
-def show_login():
+
+# =========================================================================
+# --- HÀM KIỂM TRA MUTEX (CHỐNG MỞ ỨNG DỤNG NHIỀU LẦN CÙNG LÚC) ---
+# =========================================================================
+def check_single_instance():
+    if os.name == 'nt':
+        mutex_name = "iamhisu_timekeep_mutex_xyz123"
+        mutex = ctypes.windll.kernel32.CreateMutexW(None, False, mutex_name)
+        if ctypes.windll.kernel32.GetLastError() == 183:
+            sys.exit(0)
+        return mutex
+    return None
+
+# =========================================================================
+# --- HÀM LUỒNG NGẦM ĐỂ TẢI THƯ VIỆN NẶNG (TRÁNH ĐƠ ẢNH GIF) ---
+# =========================================================================
+def load_heavy_libraries():
     try:
-        myappid = 'iamhisu.timekeep.app.1.0'
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+        import pandas
+        import openpyxl
     except:
         pass
 
-    root = tk.Tk()
-    app = TimekeepApp(root)
-    root.mainloop()
+# =========================================================================
+# --- HÀM TẠO MÀN HÌNH SPLASH ĐỘNG (CÓ HÌNH GIF & % LOADING) ---
+# =========================================================================
+def show_splash_and_start():
+    global global_mutex
+    global_mutex = check_single_instance()
+
+    splash = tk.Tk()
+    splash.overrideredirect(True)
+    splash.attributes('-topmost', True)
+
+    width = 400
+    height = 320
+    x = (splash.winfo_screenwidth() // 2) - (width // 2)
+    y = (splash.winfo_screenheight() // 2) - (height // 2)
+    splash.geometry(f'{width}x{height}+{x}+{y}')
+    splash.configure(bg="#2b2b2b")
+
+    # 1. Đọc và Nạp khung hình của file loading.gif
+    lbl_gif = tk.Label(splash, bg="#2b2b2b")
+    lbl_gif.pack(pady=(20, 10))
+    
+    frames = []
+    gif_path = resource_path("loading.gif")
+    if os.path.exists(gif_path):
+        try:
+            i = 0
+            while True:
+                frames.append(tk.PhotoImage(file=gif_path, format=f"gif -index {i}"))
+                i += 1
+        except tk.TclError:
+            pass 
+
+    def animate_gif(ind):
+        if frames:
+            lbl_gif.configure(image=frames[ind])
+            splash.after(50, animate_gif, (ind + 1) % len(frames))
+
+    if frames:
+        animate_gif(0)
+    else:
+        lbl_gif.config(text="[Đang xử lý hình ảnh...]", fg="white", font=("Arial", 10, "italic"))
+
+    # 2. Trang trí Giao diện Splash (Chữ và Thanh Process)
+    tk.Label(splash, text="TIMEKEEP (iamhisu)", font=("Arial", 16, "bold"), bg="#2b2b2b", fg="#00ffcc").pack(pady=5)
+    lbl_status = tk.Label(splash, text="Đang khởi tạo hệ thống...", font=("Arial", 10), bg="#2b2b2b", fg="white")
+    lbl_status.pack()
+
+    frame_prog = tk.Frame(splash, bg="#2b2b2b")
+    frame_prog.pack(pady=10)
+
+    progress = ttk.Progressbar(frame_prog, orient="horizontal", length=250, mode="determinate")
+    progress.pack(side=tk.LEFT, padx=5)
+
+    lbl_pct = tk.Label(frame_prog, text="0%", font=("Arial", 10, "bold"), bg="#2b2b2b", fg="#00ffcc")
+    lbl_pct.pack(side=tk.LEFT)
+
+    splash.update() 
+
+    # 3. Logic Đa luồng: Vừa quay GIF, vừa tải Pandas, vừa cộng %
+    def check_loading_thread(thread):
+        if thread.is_alive():
+            current = progress['value']
+            if current < 90:
+                new_val = current + 1.5
+                progress['value'] = new_val
+                lbl_pct.config(text=f"{int(new_val)}%")
+            splash.after(100, check_loading_thread, thread)
+        else:
+            progress['value'] = 100
+            lbl_pct.config(text="100%")
+            lbl_status.config(text="Hoàn tất! Đang mở ứng dụng...")
+            splash.after(400, launch_main_app)
+
+    def start_background_loading():
+        lbl_status.config(text="Đang nạp dữ liệu lõi (có thể mất 15s)...")
+        progress['value'] = 10
+        lbl_pct.config(text="10%")
+        
+        thread = threading.Thread(target=load_heavy_libraries)
+        thread.start()
+        splash.after(100, check_loading_thread, thread)
+
+    def launch_main_app():
+        root = tk.Tk()
+        root.withdraw()
+        app = TimekeepApp(root)
+        splash.destroy()
+        root.deiconify()
+        root.mainloop()
+
+    splash.after(200, start_background_loading)
+    splash.mainloop()
+
+# =========================================================================
+# --- ĐOẠN CODE KÍCH HOẠT NHẬP PASS (HIỆN ĐANG TẮT - BỎ COMMENT ĐỂ DÙNG) ---
+# =========================================================================
+# def show_login():
+#     try:
+#         myappid = 'iamhisu.timekeep.app.1.0'
+#         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+#     except:
+#         pass
+#
+#     root = tk.Tk()
+#     root.withdraw()
+#     
+#     login_win = tk.Toplevel(root)
+#     login_win.title("iamhisu - Đăng nhập")
+#     login_win.geometry("300x160")
+#     login_win.resizable(False, False)
+#     
+#     try:
+#         icon_path = resource_path('noface.ico')
+#         login_win.iconbitmap(icon_path)
+#     except Exception:
+#         pass
+#     
+#     login_win.update_idletasks()
+#     width = 300
+#     height = 160
+#     x = (login_win.winfo_screenwidth() // 2) - (width // 2)
+#     y = (login_win.winfo_screenheight() // 2) - (height // 2)
+#     login_win.geometry('{}x{}+{}+{}'.format(width, height, x, y))
+#     
+#     login_win.protocol("WM_DELETE_WINDOW", root.destroy)
+#     
+#     tk.Label(login_win, text="ID đăng nhập:", font=("Arial", 10)).pack(pady=(15, 5))
+#     entry_id = tk.Entry(login_win, font=("Arial", 10), justify="center")
+#     entry_id.pack()
+#     
+#     tk.Label(login_win, text="Mật khẩu:", font=("Arial", 10)).pack(pady=(5, 5))
+#     entry_pass = tk.Entry(login_win, show="*", font=("Arial", 10), justify="center")
+#     entry_pass.pack()
+#     
+#     def check_login(event=None):
+#         if entry_id.get() == "admin" and entry_pass.get() == "3042":
+#             login_win.destroy()
+#             show_splash_and_start() # Hiện màn hình load sau khi đăng nhập đúng
+#         else:
+#             messagebox.showerror("Lỗi", "Sai ID hoặc mật khẩu!", parent=login_win)
+#             
+#     login_win.bind('<Return>', check_login)
+#     tk.Button(login_win, text="Đăng nhập", command=check_login, bg="lightblue", font=("Arial", 10, "bold")).pack(pady=10)
+#     
+#     root.mainloop()
 
 if __name__ == "__main__":
-    show_login()
+    # NẾU MUỐN DÙNG CHỨC NĂNG ĐĂNG NHẬP: 
+    # Thay dòng show_splash_and_start() bên dưới bằng chữ show_login()
+    show_splash_and_start()
