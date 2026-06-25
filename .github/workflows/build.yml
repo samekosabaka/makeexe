@@ -49,7 +49,7 @@ jobs:
     - name: Đóng gói và Đổi tên file .exe
       shell: bash
       run: |
-        pyinstaller --onefile --windowed --name "${{ inputs.exe_name }}" "${{ inputs.app_file }}"
+        pyinstaller --onefile --windowed --add-data "*.gif;." --name "${{ inputs.exe_name }}" "${{ inputs.app_file }}"
 
     - name: Xuất file tải về
       uses: actions/upload-artifact@v4
