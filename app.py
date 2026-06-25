@@ -161,9 +161,6 @@ class TimekeepApp:
         style.configure("TNotebook", background="#f0f0f0")
         style.configure("TNotebook.Tab", padding=[15, 5], font=('Arial', 10, 'bold'))
 
-        # =========================================================================
-        # --- UI MỚI: ĐẶT NOTEBOOK LÊN TRƯỚC ĐỂ LÀM NỀN ---
-        # =========================================================================
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
@@ -173,28 +170,21 @@ class TimekeepApp:
         self.notebook.add(self.tab_chamcong, text="🕒 Chấm Công")
         self.notebook.add(self.tab_xinphep, text="📝 Xin Phép")
 
-        # =========================================================================
-        # --- UI MỚI: KHUNG TRÔI TỰ DO (FLOATING CONTROLS) CÙNG HÀNG VỚI TAB ---
-        # =========================================================================
         self.control_frame = tk.Frame(self.root)
         self.control_frame.place(relx=1.0, y=6, anchor="ne", x=-10)
 
-        # Nút Ghim (Pin on top)
         self.btn_pin = tk.Button(self.control_frame, text="📌 Ghim: TẮT", width=12, command=self.toggle_pin, bg="#e0e0e0", font=("Arial", 8, "bold"), cursor="hand2")
         self.btn_pin.pack(side=tk.RIGHT, padx=(5, 0))
 
-        # Nút Đổi Theme
         self.btn_theme = tk.Button(self.control_frame, text="🎨 Giao diện: Sáng", width=16, command=self.toggle_theme, bg="#e0e0e0", font=("Arial", 8, "bold"), cursor="hand2")
         self.btn_theme.pack(side=tk.RIGHT, padx=5)
 
-        # Thanh Opacity
         frame_opacity = tk.Frame(self.control_frame)
         frame_opacity.pack(side=tk.RIGHT, padx=5)
         self.lbl_opacity = tk.Label(frame_opacity, text="Độ mờ:", font=("Arial", 8, "bold"))
         self.lbl_opacity.pack(side=tk.LEFT)
         self.opacity_slider = ttk.Scale(frame_opacity, from_=0.2, to=1.0, value=1.0, command=self.change_opacity)
         self.opacity_slider.pack(side=tk.LEFT, padx=2)
-
 
         # ==================== TAB 1: CHẤM CÔNG ====================
         frame_top = tk.Frame(self.tab_chamcong, pady=5)
@@ -215,7 +205,7 @@ class TimekeepApp:
         frame_hints = tk.Frame(frame_top)
         frame_hints.grid(row=0, column=4, rowspan=2, padx=10, sticky="w")
         tk.Label(frame_hints, text="(MẸO: Nhấp đúp chuột vào cột Timetable để sửa tên Ca và tính lại dữ liệu)", fg="red", font=("Arial", 9, "italic")).pack(anchor="w")
-        tk.Label(frame_hints, text="(HỆ THỐNG: Đã tích hợp AI tự động Save As đối với file Excel giả mạo)", fg="blue", font=("Arial", 9, "bold")).pack(anchor="w")
+        tk.Label(frame_hints, text="(HỆ THỐNG: Đã tích hợp AI TỰ KHỬ TRÙNG LỖI file Excel giả mạo)", fg="blue", font=("Arial", 9, "bold")).pack(anchor="w")
 
         frame_filter = tk.Frame(self.tab_chamcong, pady=5)
         frame_filter.pack(fill=tk.X, padx=10)
@@ -296,9 +286,6 @@ class TimekeepApp:
 
         self.apply_theme("Sáng")
 
-    # =========================================================================
-    # --- LOGIC GIAO DIỆN: OPACITY, THEME & PIN ---
-    # =========================================================================
     def change_opacity(self, val):
         self.root.attributes('-alpha', float(val))
 
@@ -388,11 +375,12 @@ class TimekeepApp:
         self.tree_xp.tag_configure('evenrow', background=bg_main, foreground=fg_main)
 
     # =========================================================================
-    # --- LOGIC TỰ ĐỘNG SAVE AS FILE ẢO CỦA ZKTIME ---
+    # --- LOGIC TỰ ĐỘNG SAVE AS FILE ẢO CỦA ZKTIME VỚI BỘ LỌC KHỬ TRÙNG ---
     # =========================================================================
     def auto_save_as_xlsx(self, file_path):
         import pandas as pd
         import os
+        import re
         
         if not file_path.lower().endswith('.xls'):
             return file_path
@@ -403,10 +391,12 @@ class TimekeepApp:
         except Exception:
             pass 
             
+        df_converted = None
+        
         try:
+            # BƯỚC 1: Thử đọc như file CSV/TSV
             encodings = ['utf-8', 'utf-8-sig', 'utf-16le', 'utf-16', 'cp1258', 'latin1']
-            seps = [',', '\t', ';']
-            df_converted = None
+            seps = ['\t', ',', ';']
             
             for enc in encodings:
                 for sep in seps:
@@ -420,29 +410,51 @@ class TimekeepApp:
                 if df_converted is not None:
                     break
                     
+            # BƯỚC 2: Thử đọc dạng HTML (Code thuần Python, không xài thư viện ngoài gây lỗi)
             if df_converted is None:
-                try:
-                    dfs = pd.read_html(file_path, encoding='utf-8')
-                    if dfs:
-                        df_converted = dfs[0].astype(str)
-                except:
-                    pass
+                for enc in ['utf-8', 'utf-16le', 'cp1258', 'latin1']:
+                    try:
+                        with open(file_path, 'r', encoding=enc, errors='replace') as f:
+                            content = f.read()
+                        if '<table' in content.lower():
+                            rows = re.findall(r'<tr[^>]*>(.*?)</tr>', content, re.IGNORECASE | re.DOTALL)
+                            if rows:
+                                data = []
+                                for row in rows:
+                                    cols = re.findall(r'<t[dh][^>]*>(.*?)</t[dh]>', row, re.IGNORECASE | re.DOTALL)
+                                    cols = [re.sub(r'<[^>]+>', '', c).strip() for c in cols]
+                                    data.append(cols)
+                                if len(data) > 1:
+                                    max_cols = max(len(r) for r in data)
+                                    data = [r + [''] * (max_cols - len(r)) for r in data]
+                                    df_converted = pd.DataFrame(data[1:], columns=data[0])
+                                    break
+                    except:
+                        continue
 
             if df_converted is not None:
+                # --- SIÊU KHỬ TRÙNG --- 
+                # Tiêu diệt ký tự Null (\x00) và ký tự rác làm văng Openpyxl
+                for col in df_converted.columns:
+                    df_converted[col] = df_converted[col].apply(
+                        lambda x: ''.join(c for c in str(x) if c.isprintable() or c in ['\n', '\r', '\t']) if pd.notna(x) else x
+                    )
+                    
                 dir_name = os.path.dirname(file_path)
                 base_name = os.path.basename(file_path)
                 new_name = base_name[:-4] + "_SaveAs.xlsx"
                 new_path = os.path.join(dir_name, new_name)
                 
                 df_converted.to_excel(new_path, index=False)
-                messagebox.showinfo("Tự động Save As", f"Hệ thống phát hiện '{base_name}' là file ZKTime ảo.\nĐã tự động 'Save As' tạo ra file chuẩn tại:\n{new_name}")
+                messagebox.showinfo("Tự động Save As", f"Phát hiện '{base_name}' là file ZKTime ảo.\nĐã tự động KHỬ TRÙNG và Save As thành file chuẩn tại:\n{new_name}")
                 return new_path
-        except Exception:
-            pass
+                
+        except Exception as e:
+            messagebox.showwarning("Lỗi xuất file", f"Gặp lỗi khi tạo file Excel mới:\n{str(e)}")
+            return file_path
             
-        messagebox.showwarning("Cảnh báo", "Hệ thống không thể tự động Save As file này. Vui lòng mở bằng Excel và lưu lại thủ công.")
+        messagebox.showwarning("Cảnh báo", "Hệ thống không thể tự động giải mã file ZKTime này. Vui lòng mở bằng Excel và lưu lại (Save As) thủ công thành .xlsx.")
         return file_path
-
 
     # =========================================================================
     # --- CÁC HÀM SELECT FILE (ĐÃ TÍCH HỢP AUTO SAVE AS) ---
@@ -470,7 +482,8 @@ class TimekeepApp:
     # =========================================================================
     def read_file(self, path):
         import pandas as pd
-        if path.lower().endswith('.csv'):
+        path_lower = path.lower()
+        if path_lower.endswith('.csv'):
             encodings = ['utf-8', 'utf-8-sig', 'utf-16le', 'cp1258', 'latin1']
             for enc in encodings:
                 try:
@@ -479,7 +492,10 @@ class TimekeepApp:
                     continue
             return pd.read_csv(path, dtype=str, encoding='latin1')
         else:
-            return pd.read_excel(path, dtype=str)
+            try:
+                return pd.read_excel(path, dtype=str)
+            except Exception as e:
+                raise ValueError(f"Không thể đọc file: {str(e)}\n\nNếu đây là file ZKTime, hãy mở file lên bằng MS Excel và chọn lệnh Save As thành .xlsx!")
 
     def process_xp(self):
         import pandas as pd
@@ -1475,7 +1491,6 @@ def show_splash_and_start():
     splash.overrideredirect(True)
     splash.attributes('-topmost', True)
 
-    # Đã nới rộng Splash Screen để nhét vừa ảnh tối đa 500x500 + Chữ và Bar
     width = 520
     height = 620
     x = (splash.winfo_screenwidth() // 2) - (width // 2)
@@ -1483,11 +1498,9 @@ def show_splash_and_start():
     splash.geometry(f'{width}x{height}+{x}+{y}')
     splash.configure(bg="#2b2b2b")
 
-    # 1. Quay số ngẫu nhiên để chọn 1 trong 6 ảnh (ld1.gif -> ld6.gif)
     gif_name = f"ld{random.randint(1, 6)}.gif"
     gif_path = resource_path(gif_name)
     
-    # Nếu file ngẫu nhiên không có, thử tìm loading.gif làm phương án dự phòng
     if not os.path.exists(gif_path):
         gif_path = resource_path("loading.gif")
 
@@ -1514,7 +1527,6 @@ def show_splash_and_start():
     else:
         lbl_gif.config(text=f"[Không tìm thấy file {gif_name}]", fg="white", font=("Arial", 10, "italic"))
 
-    # 2. Trang trí Giao diện Splash (Chữ và Thanh Process)
     tk.Label(splash, text="TIMEKEEP (iamhisu)", font=("Arial", 16, "bold"), bg="#2b2b2b", fg="#00ffcc").pack(pady=5)
     lbl_status = tk.Label(splash, text="Đang khởi tạo hệ thống...", font=("Arial", 10), bg="#2b2b2b", fg="white")
     lbl_status.pack()
@@ -1530,7 +1542,6 @@ def show_splash_and_start():
 
     splash.update() 
 
-    # 3. Logic Đa luồng: Vừa quay GIF, vừa tải Pandas, vừa cộng %
     def check_loading_thread(thread):
         if thread.is_alive():
             current = progress['value']
@@ -1609,7 +1620,7 @@ def show_splash_and_start():
 #     def check_login(event=None):
 #         if entry_id.get() == "admin" and entry_pass.get() == "3042":
 #             login_win.destroy()
-#             show_splash_and_start() # Hiện màn hình load sau khi đăng nhập đúng
+#             show_splash_and_start() 
 #         else:
 #             messagebox.showerror("Lỗi", "Sai ID hoặc mật khẩu!", parent=login_win)
 #             
@@ -1619,6 +1630,4 @@ def show_splash_and_start():
 #     root.mainloop()
 
 if __name__ == "__main__":
-    # NẾU MUỐN DÙNG CHỨC NĂNG ĐĂNG NHẬP: 
-    # Thay dòng show_splash_and_start() bên dưới bằng chữ show_login()
     show_splash_and_start()
