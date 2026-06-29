@@ -205,7 +205,7 @@ class TimekeepApp:
         frame_hints = tk.Frame(frame_top)
         frame_hints.grid(row=0, column=4, rowspan=2, padx=10, sticky="w")
         tk.Label(frame_hints, text="(MẸO: Nhấp đúp chuột vào cột Timetable để sửa tên Ca và tính lại dữ liệu)", fg="red", font=("Arial", 9, "italic")).pack(anchor="w")
-        tk.Label(frame_hints, text="(HỆ THỐNG: Đã tích hợp AI TỰ KHỬ TRÙNG LỖI file Excel giả mạo)", fg="blue", font=("Arial", 9, "bold")).pack(anchor="w")
+        tk.Label(frame_hints, text="(HỆ THỐNG: Đã tích hợp tính năng TỰ ĐỘNG CHUẨN HÓA LỖI file Excel sai định dạng)", fg="blue", font=("Arial", 9, "bold")).pack(anchor="w")
 
         frame_filter = tk.Frame(self.tab_chamcong, pady=5)
         frame_filter.pack(fill=tk.X, padx=10)
@@ -375,7 +375,7 @@ class TimekeepApp:
         self.tree_xp.tag_configure('evenrow', background=bg_main, foreground=fg_main)
 
     # =========================================================================
-    # --- LOGIC TỰ ĐỘNG SAVE AS FILE ẢO CỦA ZKTIME VỚI BỘ LỌC KHỬ TRÙNG ---
+    # --- LOGIC TỰ ĐỘNG LƯU FILE ZKTIME VỚI BỘ LỌC CHUẨN HÓA DỮ LIỆU ---
     # =========================================================================
     def auto_save_as_xlsx(self, file_path):
         import pandas as pd
@@ -410,7 +410,7 @@ class TimekeepApp:
                 if df_converted is not None:
                     break
                     
-            # BƯỚC 2: Thử đọc dạng HTML (Code thuần Python, không xài thư viện ngoài gây lỗi)
+            # BƯỚC 2: Thử đọc dạng HTML (Code thuần Python, không xài thư viện ngoài)
             if df_converted is None:
                 for enc in ['utf-8', 'utf-16le', 'cp1258', 'latin1']:
                     try:
@@ -433,8 +433,8 @@ class TimekeepApp:
                         continue
 
             if df_converted is not None:
-                # --- SIÊU KHỬ TRÙNG --- 
-                # Tiêu diệt ký tự Null (\x00) và ký tự rác làm văng Openpyxl
+                # --- LÀM SẠCH DỮ LIỆU SÂU --- 
+                # Loại bỏ ký tự Null (\x00) và ký tự không hợp lệ
                 for col in df_converted.columns:
                     df_converted[col] = df_converted[col].apply(
                         lambda x: ''.join(c for c in str(x) if c.isprintable() or c in ['\n', '\r', '\t']) if pd.notna(x) else x
@@ -446,7 +446,7 @@ class TimekeepApp:
                 new_path = os.path.join(dir_name, new_name)
                 
                 df_converted.to_excel(new_path, index=False)
-                messagebox.showinfo("Tự động Save As", f"Phát hiện '{base_name}' là file ZKTime ảo.\nĐã tự động KHỬ TRÙNG và Save As thành file chuẩn tại:\n{new_name}")
+                messagebox.showinfo("Tự động Chuẩn hóa", f"Phát hiện '{base_name}' là file ZKTime sai chuẩn.\nĐã tự động CHUẨN HÓA và lưu thành file chuẩn tại:\n{new_name}")
                 return new_path
                 
         except Exception as e:
@@ -478,7 +478,7 @@ class TimekeepApp:
             self.lbl_file_xp.config(text=self.file_xp_path.split('/')[-1])
 
     # =========================================================================
-    # --- CÁC HÀM CŨ ĐÃ ĐƯỢC LÀM SẠCH ---
+    # --- CÁC HÀM XỬ LÝ DỮ LIỆU ---
     # =========================================================================
     def read_file(self, path):
         import pandas as pd
@@ -610,7 +610,6 @@ class TimekeepApp:
                     pass
                 return None, ""
 
-
             new_rows = []
             for idx, row in df.iterrows():
                 msnv = str(row['Mã số nhân viên']).strip()
@@ -671,14 +670,30 @@ class TimekeepApp:
                 else:
                     is_late = t_in_dt > shift_start
                     is_early = t_out_dt < shift_end
+                    
+                    # LOGIC BỔ SUNG XỬ LÝ CHÍNH XÁC NỬA NGÀY CHO CA HÀNH CHÍNH
+                    curr_shift_upper = str(shift_name).upper()
+                    is_target_hc = "HC" in curr_shift_upper or "HÀNH CHÍNH" in curr_shift_upper or "7H30-17" in curr_shift_upper
+                    
+                    def get_late_end(dt):
+                        # Khống chế giờ kết thúc xin phép sáng là 11:30 nếu nhân sự đi làm vào buổi chiều
+                        if is_target_hc and (11 <= dt.hour <= 13) and dt >= dt.replace(hour=11, minute=30, second=0, microsecond=0):
+                            return dt.replace(hour=11, minute=30, second=0, microsecond=0)
+                        return ceil_30(dt)
+                        
+                    def get_early_start(dt):
+                        # Khống chế giờ bắt đầu xin phép chiều là 13:00 nếu nhân sự về sớm vào buổi trưa
+                        if is_target_hc and (11 <= dt.hour <= 13) and dt <= dt.replace(hour=13, minute=0, second=0, microsecond=0):
+                            return dt.replace(hour=13, minute=0, second=0, microsecond=0)
+                        return floor_30(dt)
 
                     if is_late and is_early:
-                        records_for_this_row.append(('ACTR VIỆC RIÊNG', shift_start.strftime("%Y-%m-%d %H:%M"), ceil_30(t_in_dt).strftime("%Y-%m-%d %H:%M"), False))
-                        records_for_this_row.append(('ACTR VIỆC RIÊNG', floor_30(t_out_dt).strftime("%Y-%m-%d %H:%M"), shift_end.strftime("%Y-%m-%d %H:%M"), True))
+                        records_for_this_row.append(('ACTR VIỆC RIÊNG', shift_start.strftime("%Y-%m-%d %H:%M"), get_late_end(t_in_dt).strftime("%Y-%m-%d %H:%M"), False))
+                        records_for_this_row.append(('ACTR VIỆC RIÊNG', get_early_start(t_out_dt).strftime("%Y-%m-%d %H:%M"), shift_end.strftime("%Y-%m-%d %H:%M"), True))
                     elif is_late:
-                        records_for_this_row.append(('ACTR VIỆC RIÊNG', shift_start.strftime("%Y-%m-%d %H:%M"), ceil_30(t_in_dt).strftime("%Y-%m-%d %H:%M"), False))
+                        records_for_this_row.append(('ACTR VIỆC RIÊNG', shift_start.strftime("%Y-%m-%d %H:%M"), get_late_end(t_in_dt).strftime("%Y-%m-%d %H:%M"), False))
                     elif is_early:
-                        records_for_this_row.append(('ACTR VIỆC RIÊNG', floor_30(t_out_dt).strftime("%Y-%m-%d %H:%M"), shift_end.strftime("%Y-%m-%d %H:%M"), False))
+                        records_for_this_row.append(('ACTR VIỆC RIÊNG', get_early_start(t_out_dt).strftime("%Y-%m-%d %H:%M"), shift_end.strftime("%Y-%m-%d %H:%M"), False))
                     else:
                         records_for_this_row.append(('ACTR VIỆC RIÊNG', t_in_str, t_out_str, False))
 
@@ -756,10 +771,10 @@ class TimekeepApp:
             ws = wb.active
             ws.title = "Báo Cáo"
             
+            # ĐÃ RÚT GỌN CỘT XUẤT RA CHỈ DỪNG LẠI Ở "Lý do nghỉ phép"
             headers = [
                 "MSNV", "Ngày", "*Loại hình xin phép", "*Thời gian bắt đầu xin phép", 
-                "*Thời gian kết thúc xin phép", "Lý do nghỉ phép", "Ngày sinh con", 
-                "Có phải là con một không", "结婚登记日期", "Sinh nhật của người già được chăm sóc", "Ghi chú"
+                "*Thời gian kết thúc xin phép", "Lý do nghỉ phép"
             ]
             
             for c_idx, h_name in enumerate(headers, 1):
@@ -1484,6 +1499,13 @@ def load_heavy_libraries():
 # --- HÀM TẠO MÀN HÌNH SPLASH ĐỘNG (CÓ HÌNH RANDOM GIF & % LOADING) ---
 # =========================================================================
 def show_splash_and_start():
+    # --- ĐÓNG MÀN HÌNH PYI_SPLASH NGAY LÚC NÀY ---
+    try:
+        import pyi_splash
+        pyi_splash.close()
+    except:
+        pass
+    
     global global_mutex
     global_mutex = check_single_instance()
 
