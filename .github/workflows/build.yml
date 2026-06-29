@@ -32,7 +32,7 @@ jobs:
       shell: bash
       run: |
         python -m pip install --upgrade pip
-        pip install pyinstaller pipreqs
+        pip install pyinstaller pipreqs pillow
         
         # Cách ly file bạn vừa gõ tên ra để AI quét thư viện
         mkdir temp_scan
@@ -49,7 +49,7 @@ jobs:
     - name: Đóng gói và Đổi tên file .exe
       shell: bash
       run: |
-        pyinstaller --onefile --windowed --add-data "*.gif;." --name "${{ inputs.exe_name }}" "${{ inputs.app_file }}"
+        pyinstaller --onefile --windowed --add-data "*.gif;." --add-data "*.ico;." --splash "loading.gif" --name "${{ inputs.exe_name }}" "${{ inputs.app_file }}"
 
     - name: Xuất file tải về
       uses: actions/upload-artifact@v4
