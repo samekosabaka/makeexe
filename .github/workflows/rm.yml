@@ -1,24 +1,26 @@
-name: Remove old artifacts
+name: Cleanup Old Artifacts
 
 on:
   schedule:
-    # Every day at 1am
-    - cron: '0 1 * * *'
+    # Chạy tự động vào lúc 00:00 mỗi ngày
+    - cron: '0 0 * * *'
+  workflow_dispatch: # Cho phép bạn bấm nút "Run workflow" thủ công trên giao diện GitHub
 
 jobs:
-  remove-old-artifacts:
+  remove-artifacts:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-
-    # For private repos
     permissions:
-      actions: write
+      actions: write # Bắt buộc phải có quyền này để API của GitHub cho phép xoá artifact
 
     steps:
-    - name: Remove old artifacts
+    - name: Xoá các artifact cũ
       uses: c-hive/gha-remove-artifacts@v1
       with:
-        age: '1 month' # '<number> <unit>', e.g. 5 days, 2 years, 90 seconds, parsed by Moment.js
-        # Optional inputs
-        # skip-tags: true
-        # skip-recent: 5
+        age: '7 days' # Thay đổi số ngày theo ý muốn (ví dụ: '1 month', '14 days')
+        
+        # Bỏ comment dòng dưới nếu bạn muốn giữ lại vĩnh viễn các artifact thuộc về một Release (có gắn tag)
+        # skip-tags: true 
+        
+        # Bỏ comment dòng dưới nếu bạn muốn giữ lại một số lượng artifact mới nhất định bất kể tuổi của chúng
+        # keep-recent: 5
