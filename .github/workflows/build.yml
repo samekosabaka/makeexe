@@ -1,6 +1,5 @@
 name: Tự động Build theo tên File
 
-# Khai báo menu chạy thủ công
 on:
   workflow_dispatch:
     inputs:
@@ -26,7 +25,7 @@ jobs:
     - name: Cài đặt môi trường Python
       uses: actions/setup-python@v4
       with: 
-        python-version: '3.11' # <--- ĐÃ NÂNG CẤP LÊN 3.11 ĐỂ TRÁNH LỖI PANDAS
+        python-version: '3.11'
 
     - name: AI Quét và cài thư viện tự động
       shell: bash
@@ -34,7 +33,6 @@ jobs:
         python -m pip install --upgrade pip
         pip install pyinstaller pipreqs pillow
         
-        # Cách ly file bạn vừa gõ tên ra để AI quét thư viện
         mkdir temp_scan
         cp "${{ inputs.app_file }}" temp_scan/
         pipreqs temp_scan/ --savepath temp_scan/reqs_auto.txt --force
@@ -46,10 +44,39 @@ jobs:
           pip install -r temp_scan/reqs_auto.txt
         fi
 
-    - name: Đóng gói và Đổi tên file .exe
+    - name: Đóng gói linh hoạt (Bỏ qua lỗi thiếu file)
       shell: bash
       run: |
-        pyinstaller --onefile --windowed --add-data "*.gif;." --add-data "*.ico;." --splash "loading.gif" --name "${{ inputs.exe_name }}" "${{ inputs.app_file }}"
+        # 1. Khởi tạo lệnh cơ bản
+        BUILD_CMD="pyinstaller --onefile --windowed --name \"${{ inputs.exe_name }}\" \"${{ inputs.app_file }}\""
+        
+        # 2. Kiểm tra file .ico
+        if ls *.ico >/dev/null 2>&1; then
+          BUILD_CMD="$BUILD_CMD --add-data \"*.ico;.\""
+          echo "[+] Đã tìm thấy file .ico, tiến hành tích hợp Icon."
+        else
+          echo "[-] CẢNH BÁO: Không tìm thấy file .ico trên GitHub. Sẽ dùng Icon mặc định."
+        fi
+        
+        # 3. Kiểm tra file .gif
+        if ls *.gif >/dev/null 2>&1; then
+          BUILD_CMD="$BUILD_CMD --add-data \"*.gif;.\""
+          echo "[+] Đã tìm thấy file .gif, tiến hành tích hợp dữ liệu."
+        else
+          echo "[-] CẢNH BÁO: Không tìm thấy file .gif trên GitHub."
+        fi
+        
+        # 4. Kiểm tra file loading.gif cho Splash Screen
+        if [ -f "loading.gif" ]; then
+          BUILD_CMD="$BUILD_CMD --splash \"loading.gif\""
+          echo "[+] Đã tìm thấy loading.gif, tiến hành tạo Native Splash Screen."
+        else
+          echo "[-] CẢNH BÁO: Không tìm thấy loading.gif. Bỏ qua Splash Screen hệ thống."
+        fi
+        
+        # 5. Thực thi lệnh đã được tinh chỉnh
+        echo "LỆNH THỰC THI CUỐI CÙNG: $BUILD_CMD"
+        eval $BUILD_CMD
 
     - name: Xuất file tải về
       uses: actions/upload-artifact@v4
