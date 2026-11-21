@@ -156,11 +156,11 @@
     gap: 14px;
     flex-shrink: 0;
   }
-  .file-group { display: flex; flex-direction: column; gap: 5px; }
+  .file-group { display: flex; flex-direction: column; gap: 6px; }
   .file-row { display: flex; align-items: center; gap: 8px; }
-  .file-label { width: 140px; font-weight: 600; color: var(--text-muted); }
+  .file-label { width: 145px; font-weight: 600; color: var(--text-muted); }
   .file-box {
-    width: 255px;
+    width: 250px;
     padding: 4px 10px;
     background: var(--bg-main);
     border: 1px solid var(--border);
@@ -170,7 +170,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .action-group { display: flex; gap: 8px; align-items: center; }
+  .action-group { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .hints {
     flex: 1;
     display: flex;
@@ -480,21 +480,21 @@
           <span class="file-label">2. File số dư nghỉ bù:</span>
           <div class="file-box" id="lblFileNb">Chưa chọn file (Tùy chọn)</div>
           <button class="btn" onclick="sendIPC({cmd:'pick_file', target:'fnb'})">Chọn File</button>
-          <button class="btn btn-danger" id="btnClearNb" style="display:none; padding: 3px 8px;" onclick="sendIPC({cmd:'clear_nb'})">✖ Bỏ file</button>
+          <button class="btn btn-danger" id="btnClearNb" style="display:none; padding: 4px 8px;" onclick="sendIPC({cmd:'clear_nb'})">✖ Bỏ file</button>
         </div>
         <div class="file-row">
-          <span class="file-label">3. File phép năm:</span>
+          <span class="file-label">3. File số dư phép năm:</span>
           <div class="file-box" id="lblFilePn">Chưa chọn file (Tùy chọn)</div>
           <button class="btn" onclick="sendIPC({cmd:'pick_file', target:'fpn'})">Chọn File</button>
-          <button class="btn btn-danger" id="btnClearPn" style="display:none; padding: 3px 8px;" onclick="sendIPC({cmd:'clear_pn'})">✖ Bỏ file</button>
+          <button class="btn btn-danger" id="btnClearPn" style="display:none; padding: 4px 8px;" onclick="sendIPC({cmd:'clear_pn'})">✖ Bỏ file</button>
         </div>
       </div>
 
       <div class="action-group">
-        <button class="btn btn-primary" style="padding: 12px 16px;" onclick="sendIPC({cmd:'process_xp'})">▶ Xử lý dữ liệu</button>
-        <button class="btn btn-success" style="padding: 12px 16px;" onclick="sendIPC({cmd:'export_xp'})">📥 Xuất kết quả</button>
-        <button class="btn btn-warning" style="padding: 12px 16px;" onclick="sendIPC({cmd:'export_nb'})">📊 Xuất Số Dư Nghỉ Bù</button>
-        <button class="btn" style="padding: 12px 14px;" onclick="openSettingsModal()">⚙ Cài đặt ca</button>
+        <button class="btn btn-primary" style="padding: 10px 16px;" onclick="sendIPC({cmd:'process_xp'})">▶ Xử lý dữ liệu</button>
+        <button class="btn btn-success" style="padding: 10px 16px;" onclick="sendIPC({cmd:'export_xp'})">📥 Xuất kết quả</button>
+        <button class="btn btn-warning" style="padding: 10px 16px;" onclick="sendIPC({cmd:'export_nb'})">📊 Xuất Số Dư Nghỉ Bù</button>
+        <button class="btn" style="padding: 10px 14px;" onclick="openSettingsModal()">⚙ Cài đặt ca</button>
       </div>
     </div>
 
@@ -508,7 +508,7 @@
     </div>
 
     <div class="bottom-bar">
-      <span class="hint-blue">💡 Hệ thống tự động quy đổi Phép năm (1 ngày = 8H) và Nghỉ bù, trừ lùi từ trên xuống cho từng MSNV. Các dòng có Dropdown cho phép bạn đổi linh hoạt giữa các phương án.</span>
+      <span class="hint-blue">💡 Các dòng có Dropdown ở cột "*Loại hình xin phép" cho phép chuyển đổi linh hoạt giữa Phép năm (1 ngày = 8H) / Nghỉ bù, chia 2 dòng hoặc nhường Nghỉ bù xuống dòng dưới.</span>
       <div class="row-counter" id="lblCountXP">Tổng cộng: 0 dòng</div>
     </div>
   </div>
@@ -743,23 +743,24 @@
           const baseIdx = parseInt(row["BaseIdx"] || "0", 10);
           if (menuKind === "UPPER") {
             const pIdx = parseInt(row["LinkedPartialIdx"] || "0", 10);
-            const isSkip = row["UpperSkipped"] === "True";
             const canSwap = row["CanSwap"] === "True";
-            const opt3 = row["Opt3Label"] ? `<option value="2" ${row["UsePhepNam"] === "True" ? 'selected' : ''}>${escHtml(row["Opt3Label"])}</option>` : '';
-            const curVal = row["UsePhepNam"] === "True" ? "2" : (isSkip ? "1" : "0");
+            const pnFirst = row["PnFirst"] === "True";
+            const curVal = row["CurVal"] || "0";
+            const opt3 = row["Opt3Label"] ? `<option value="2" ${curVal === "2" ? 'selected' : ''}>${escHtml(row["Opt3Label"])}</option>` : '';
             return `<td>
-              <select class="cell-select" onchange="onUpperSelectChange(${baseIdx}, ${pIdx}, this.value, ${canSwap})">
+              <select class="cell-select" onchange="onUpperSelectChange(${baseIdx}, ${pIdx}, this.value, ${canSwap}, ${pnFirst})">
                 <option value="0" ${curVal === "0" ? 'selected' : ''}>${escHtml(row["Opt1Label"])}</option>
                 <option value="1" ${curVal === "1" ? 'selected' : ''}>${escHtml(row["Opt2Label"])}</option>
                 ${opt3}
               </select>
             </td>`;
           } else if (menuKind === "FOUR_EIGHT") {
-            const usePn = row["UsePhepNam"] === "True";
+            const curVal = row["CurVal"] || "0";
+            const pnFirst = row["PnFirst"] === "True";
             return `<td>
-              <select class="cell-select" onchange="onFourEightChange(${baseIdx}, this.value === '1')">
-                <option value="0" ${!usePn ? 'selected' : ''}>${escHtml(row["Opt1Label"])}</option>
-                <option value="1" ${usePn ? 'selected' : ''}>${escHtml(row["Opt2Label"])}</option>
+              <select class="cell-select" onchange="onFourEightChange(${baseIdx}, this.value, ${pnFirst})">
+                <option value="0" ${curVal === "0" ? 'selected' : ''}>${escHtml(row["Opt1Label"])}</option>
+                <option value="1" ${curVal === "1" ? 'selected' : ''}>${escHtml(row["Opt2Label"])}</option>
               </select>
             </td>`;
           } else if (menuKind === "PARTIAL") {
@@ -785,16 +786,29 @@
     document.getElementById('lblCountXP').textContent = `Tổng cộng: ${appState.xp_rows.length} dòng`;
   }
 
-  function onUpperSelectChange(upperIdx, partialIdx, valStr, canSwap) {
-    if (valStr === "2") {
-      sendIPC({ cmd: 'xp_four_eight_pn', base_idx: upperIdx, use_pn: true });
+  function onUpperSelectChange(upperIdx, partialIdx, valStr, canSwap, pnFirst) {
+    if (pnFirst) {
+      if (valStr === "0") {
+        sendIPC({ cmd: 'xp_four_eight_pn', base_idx: upperIdx, choice: 1 });
+      } else if (valStr === "1") {
+        sendIPC({ cmd: 'xp_four_eight_pn', base_idx: upperIdx, choice: 2 });
+      } else {
+        sendIPC({ cmd: 'xp_upper_skip', upper_idx: upperIdx, partial_idx: partialIdx, skip: true, can_swap: canSwap });
+      }
     } else {
-      sendIPC({ cmd: 'xp_upper_skip', upper_idx: upperIdx, partial_idx: partialIdx, skip: valStr === "1", can_swap: canSwap });
+      if (valStr === "2") {
+        sendIPC({ cmd: 'xp_four_eight_pn', base_idx: upperIdx, choice: 1 });
+      } else {
+        sendIPC({ cmd: 'xp_upper_skip', upper_idx: upperIdx, partial_idx: partialIdx, skip: valStr === "1", can_swap: canSwap });
+      }
     }
   }
 
-  function onFourEightChange(baseIdx, usePn) {
-    sendIPC({ cmd: 'xp_four_eight_pn', base_idx: baseIdx, use_pn: usePn });
+  function onFourEightChange(baseIdx, valStr, pnFirst) {
+    const choice = pnFirst
+      ? (valStr === "0" ? 1 : 2)
+      : (valStr === "0" ? 2 : 1);
+    sendIPC({ cmd: 'xp_four_eight_pn', base_idx: baseIdx, choice: choice });
   }
 
   function onPartialSelectChange(partialIdx, upperIdx, mode) {
