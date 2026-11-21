@@ -1,0 +1,9 @@
+# =====================================================================
+# DANH SÁCH HARDWARE ID (HWID) ĐƯỢC PHÉP CHẠY PHẦN MỀM TIMEKEEP
+# - Mỗi dòng là 1 mã HWID (không phân biệt chữ hoa/chữ thường).
+# - Có thể viết ghi chú tên máy/nhân viên sau dấu # hoặc //
+# - Khi mở app trên máy chưa cấp phép, app sẽ tự copy mã vào Clipboard.
+# =====================================================================
+
+52bcaeb8-bdc1-46c6-a2a2-b0a2692330ed
+8F2725DF-96F0-469B-ABBA-2DD9C27C3930
