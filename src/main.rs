@@ -69,7 +69,7 @@ enum IpcCmd {
     #[serde(rename = "xp_upper_skip")]
     XpUpperSkip { upper_idx: usize, partial_idx: usize, skip: bool, can_swap: bool },
     #[serde(rename = "xp_four_eight_pn")]
-    XpFourEightPn { base_idx: usize, use_pn: bool },
+    XpFourEightPn { base_idx: usize, choice: u8 },
     #[serde(rename = "xp_partial_mode")]
     XpPartialMode { partial_idx: usize, upper_idx: Option<usize>, mode: u8 },
     #[serde(rename = "export_xp")]
@@ -191,886 +191,1460 @@ fn main() {
                                 };
                                 msg_box("Thành công", "Đã cập nhật cấu hình giờ ca!", false);
                             } else {
-                                msg_box("Lỗi", "Vui lòng nhập đúng định dạng 24h HH:MM (VD: 07:30, 15:Đã bổ sung mục **"3. File số dư phép năm:"** vào Tab Xin Phép và tích hợp đầy đủ logic xử lý theo cấu trúc file `Phép-năm.xlsx`:
-
-* **Đọc và quy đổi từ file `Phép-năm.xlsx`:** Hệ thống tự động lấy cột `MSNV` (chuẩn hóa về dạng `Sxxxxxx`, đồng thời hỗ trợ dự phòng tên cột `Mã số nhân viên`) và cộng gộp cột `Tổng số dư`. Đơn vị ngày được quy đổi trực tiếp sang phút và giờ theo công thức: $1 \text{ ngày} = 8 \text{ giờ} = 480 \text{ phút}$ (tương ứng $0.5 \text{ ngày} = 4 \text{ giờ} = 240 \text{ phút}$).
-* **Tự động đối trừ từ trên xuống cho mốc 4H (240p) và 8H (480p):**
-  * **Khi có nạp File Phép Năm:** Hệ thống duyệt từ trên xuống dưới theo từng MSNV. Khi gặp dòng có thời gian xin phép đúng **4 tiếng** hoặc **8 tiếng**:
-    * **Trường hợp cả Nghỉ bù và Phép năm đều đủ giờ:** Tự động đẩy **`TH1: ACTR PHÉP NĂM`** lên làm phương án mặc định và mở Dropdown cho phép bạn đổi sang **`TH2: ACTR NGHỈ BÙ`** (nếu bạn chuyển sang chọn `TH2: ACTR NGHỈ BÙ`, số dư phép năm của dòng đó sẽ tự động được hoàn lại để chảy tiếp xuống cấp cho các dòng 4H/8H phía dưới).
-    * **Trường hợp không đủ Nghỉ bù nhưng đủ Phép năm:** Tự động gán **`ACTR PHÉP NĂM`** và trừ tương ứng $0.5$ ngày (4H) hoặc $1.0$ ngày (8H) vào quỹ phép năm còn lại của nhân viên đó. Nếu dòng này nằm ở vị trí thiếu giờ nghỉ bù lẻ (Partial), Dropdown cũng đặt **`TH1: ACTR PHÉP NĂM`** lên đầu, kế tiếp là **`TH2: Chia 2 dòng (Nghỉ bù + Việc riêng)`**.
-    * **Trường hợp Tổng số dư phép năm $= 0$ (hoặc còn lại không đủ cho 4H/8H):** Tự động bỏ qua phép năm; nếu không đủ nghỉ bù thì dòng đó sẽ chuyển về **`ACTR VIỆC RIÊNG`** (thay vì mặc định gán Phép năm khi chưa kiểm tra số dư).
-  * **Khi không chọn File Phép Năm:** Giữ nguyên toàn bộ logic hoạt động như phiên bản trước.
-
----
-
-### 1. File Giao diện `src/ui.html`
-Cập nhật khung chọn 3 file tại Tab Xin Phép và hàm xử lý sự kiện chọn phương án Phép năm / Nghỉ bù:
-
-<details>
-<summary><b style="font-size: 15px; cursor: pointer; color: #2ecc71;">👉 Nhấp vào đây để hiện/ẩn toàn bộ mã nguồn src/ui.html 👈</b></summary>
-
-```html
-<!DOCTYPE html>
-<html lang="vi">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>TIMEKEEP</title>
-<style>
-  :root {
-    --bg-main: #f4f6f9;
-    --bg-card: #ffffff;
-    --bg-header: #1e293b;
-    --text-header: #ffffff;
-    --text-main: #1e293b;
-    --text-muted: #64748b;
-    --border: #e2e8f0;
-    --primary: #2563eb;
-    --primary-hover: #1d4ed8;
-    --success: #10b981;
-    --success-hover: #059669;
-    --danger: #ef4444;
-    --warning: #f59e0b;
-    --row-even: #f8fafc;
-    --row-hover: #eff6ff;
-    --bvt-row-bg: #ffedd5;
-    --bvt-row-fg: #9a3412;
-    --hl-cell-bg: #fef08a;
-    --hl-cell-fg: #854d0e;
-    --xp-hl-bg: #fef9c3;
-    --xp-hl-fg: #92400e;
-  }
-
-  [data-theme="Tối"] {
-    --bg-main: #0f172a;
-    --bg-card: #1e293b;
-    --bg-header: #020617;
-    --text-header: #f8fafc;
-    --text-main: #f1f5f9;
-    --text-muted: #94a3b8;
-    --border: #334555;
-    --primary: #3b82f6;
-    --primary-hover: #2563eb;
-    --row-even: #192338;
-    --row-hover: #263554;
-    --bvt-row-bg: rgba(194, 65, 12, 0.35);
-    --bvt-row-fg: #fdba74;
-    --hl-cell-bg: rgba(202, 138, 4, 0.42);
-    --hl-cell-fg: #fef08a;
-    --xp-hl-bg: rgba(180, 83, 9, 0.35);
-    --xp-hl-fg: #fde68a;
-  }
-
-  [data-theme="Neon"] {
-    --bg-main: #050811;
-    --bg-card: #0b1120;
-    --bg-header: #02040a;
-    --text-header: #00ffcc;
-    --text-main: #00ffcc;
-    --text-muted: #38bdf8;
-    --border: #1e293b;
-    --primary: #0284c7;
-    --primary-hover: #0369a1;
-    --row-even: #080d1a;
-    --row-hover: #111c35;
-    --bvt-row-bg: rgba(225, 29, 72, 0.35);
-    --bvt-row-fg: #fda4af;
-    --hl-cell-bg: rgba(234, 179, 8, 0.38);
-    --hl-cell-fg: #fef08a;
-    --xp-hl-bg: rgba(16, 185, 129, 0.25);
-    --xp-hl-fg: #6ee7b7;
-  }
-
-  * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
-  body {
-    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-    background: var(--bg-main);
-    color: var(--text-main);
-    font-size: 13px;
-    height: 100vh;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-
-  .topbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 8px 16px;
-    background: var(--bg-card);
-    border-bottom: 1px solid var(--border);
-    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-    flex-shrink: 0;
-  }
-  .tabs { display: flex; gap: 8px; }
-  .tab-btn {
-    padding: 7px 18px;
-    border-radius: 8px;
-    border: 1px solid transparent;
-    background: transparent;
-    color: var(--text-muted);
-    font-weight: 600;
-    font-size: 13.5px;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-  .tab-btn:hover { background: var(--row-hover); color: var(--text-main); }
-  .tab-btn.active {
-    background: var(--primary);
-    color: #fff;
-    box-shadow: 0 2px 6px rgba(37, 99, 235, 0.25);
-  }
-  .top-actions { display: flex; gap: 8px; align-items: center; }
-
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    padding: 6px 13px;
-    border-radius: 7px;
-    border: 1px solid var(--border);
-    background: var(--bg-card);
-    color: var(--text-main);
-    font-weight: 600;
-    font-size: 12.5px;
-    cursor: pointer;
-    transition: all 0.15s;
-    white-space: nowrap;
-  }
-  .btn:hover { filter: brightness(0.95); }
-  .btn:active { transform: translateY(1px); }
-  .btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
-  .btn-success { background: var(--success); color: #fff; border-color: var(--success); }
-  .btn-warning { background: var(--warning); color: #fff; border-color: var(--warning); }
-  .btn-danger { background: var(--danger); color: #fff; border-color: var(--danger); }
-  .btn-pin-on { background: #fecaca; color: #991b1b; border-color: #f87171; }
-
-  .tab-view {
-    display: none;
-    flex-direction: column;
-    flex: 1;
-    min-height: 0;
-    padding: 10px 14px;
-    gap: 10px;
-  }
-  .tab-view.active { display: flex; }
-
-  .control-card {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 10px 14px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 14px;
-    flex-shrink: 0;
-  }
-  .file-group { display: flex; flex-direction: column; gap: 6px; }
-  .file-row { display: flex; align-items: center; gap: 8px; }
-  .file-label { width: 145px; font-weight: 600; color: var(--text-muted); }
-  .file-box {
-    width: 250px;
-    padding: 4px 10px;
-    background: var(--bg-main);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    font-weight: 600;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .action-group { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  .hints {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    font-size: 12px;
-    padding-left: 8px;
-    border-left: 2px solid var(--border);
-  }
-  .hint-red { color: #e11d48; font-style: italic; }
-  .hint-blue { color: var(--primary); font-weight: 600; }
-
-  .filter-bar {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 8px 14px;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    flex-shrink: 0;
-    flex-wrap: wrap;
-  }
-  .filter-item { display: flex; align-items: center; gap: 6px; position: relative; }
-  .filter-item label { font-weight: 600; color: var(--text-muted); }
-  select.std-select {
-    padding: 5px 10px;
-    border-radius: 6px;
-    border: 1px solid var(--border);
-    background: var(--bg-main);
-    color: var(--text-main);
-    font-weight: 600;
-    font-size: 12.5px;
-    outline: none;
-    cursor: pointer;
-  }
-
-  .multi-dropdown {
-    position: absolute;
-    top: calc(100% + 4px);
-    left: 0;
-    width: 230px;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    box-shadow: 0 10px 25px rgba(0,0,0,0.18);
-    padding: 8px;
-    z-index: 100;
-    display: none;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .multi-dropdown.open { display: flex; }
-  .multi-search {
-    padding: 5px 8px;
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    background: var(--bg-main);
-    color: var(--text-main);
-    font-size: 12px;
-  }
-  .multi-actions { display: flex; gap: 6px; }
-  .multi-actions button { flex: 1; font-size: 11px; padding: 3px 6px; }
-  .multi-list {
-    max-height: 200px;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    border-top: 1px solid var(--border);
-    padding-top: 5px;
-  }
-  .multi-item {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 3px 5px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 12.5px;
-  }
-  .multi-item:hover { background: var(--row-hover); }
-
-  .table-wrap {
-    flex: 1;
-    min-height: 0;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    overflow: auto;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
-  }
-  table {
-    width: 100%;
-    border-collapse: separate;
-    border-spacing: 0;
-    font-size: 12.5px;
-  }
-  thead th {
-    position: sticky;
-    top: 0;
-    background: var(--bg-header);
-    color: var(--text-header);
-    font-weight: 600;
-    padding: 9px 10px;
-    text-align: center;
-    border-bottom: 1px solid var(--border);
-    border-right: 1px solid rgba(255,255,255,0.08);
-    white-space: nowrap;
-    z-index: 10;
-  }
-  tbody td {
-    padding: 6px 10px;
-    text-align: center;
-    border-bottom: 1px solid var(--border);
-    border-right: 1px solid var(--border);
-    white-space: nowrap;
-    user-select: text;
-  }
-  tbody tr:nth-child(even) { background: var(--row-even); }
-  tbody tr:hover { background: var(--row-hover); }
-
-  tbody tr.row-bvt { background: var(--bvt-row-bg) !important; color: var(--bvt-row-fg); font-weight: 600; }
-  td.cell-hl { background: var(--hl-cell-bg) !important; color: var(--hl-cell-fg) !important; font-weight: 700; }
-  tbody tr.row-xp-hl { background: var(--xp-hl-bg) !important; color: var(--xp-hl-fg); font-weight: 600; }
-
-  select.cell-select {
-    width: 100%;
-    padding: 3px 6px;
-    border-radius: 5px;
-    border: 1px solid var(--primary);
-    background: var(--bg-card);
-    color: var(--text-main);
-    font-weight: 700;
-    font-size: 12px;
-    cursor: pointer;
-  }
-
-  .bottom-bar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 8px 14px;
-    flex-shrink: 0;
-  }
-  .bottom-buttons { display: flex; gap: 12px; }
-  .row-counter { font-weight: 600; color: var(--text-muted); }
-
-  .modal-backdrop {
-    position: fixed;
-    inset: 0;
-    background: rgba(15, 23, 42, 0.55);
-    backdrop-filter: blur(2px);
-    display: none;
-    align-items: center;
-    justify-content: center;
-    z-index: 200;
-  }
-  .modal-backdrop.open { display: flex; }
-  .modal-card {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    width: 390px;
-    padding: 18px 20px;
-    box-shadow: 0 20px 35px rgba(0,0,0,0.25);
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-  }
-  .modal-title { font-size: 15px; font-weight: 700; text-align: center; }
-  .shift-grid {
-    display: grid;
-    grid-template-columns: 130px 1fr 18px 1fr;
-    align-items: center;
-    gap: 8px;
-  }
-  .shift-grid input {
-    width: 100%;
-    padding: 5px 8px;
-    text-align: center;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--bg-main);
-    color: var(--text-main);
-    font-weight: 700;
-  }
-</style>
-</head>
-<body data-theme="Sáng">
-
-  <!-- TOP BAR -->
-  <div class="topbar">
-    <div class="tabs">
-      <button class="tab-btn active" id="tabBtnCC" onclick="switchTab('CC')">🕒 Chấm Công</button>
-      <button class="tab-btn" id="tabBtnXP" onclick="switchTab('XP')">📝 Xin Phép & Nghỉ Bù</button>
-    </div>
-    <div class="top-actions">
-      <button class="btn" id="btnTheme" onclick="cycleTheme()">🎨 Giao diện: Sáng</button>
-      <button class="btn" id="btnPin" onclick="sendIPC({cmd:'toggle_pin'})">📌 Ghim: TẮT</button>
-    </div>
-  </div>
-
-  <!-- ==================== TAB 1: CHẤM CÔNG ==================== -->
-  <div class="tab-view active" id="viewCC">
-    <div class="control-card">
-      <div class="file-group">
-        <div class="file-row">
-          <span class="file-label">1. File zkt:</span>
-          <div class="file-box" id="lblFile1">Chưa chọn file</div>
-          <button class="btn" onclick="sendIPC({cmd:'pick_file', target:'f1'})">Chọn File</button>
-        </div>
-        <div class="file-row">
-          <span class="file-label">2. Dữ liệu HR:</span>
-          <div class="file-box" id="lblFile2">Chưa chọn file</div>
-          <button class="btn" onclick="sendIPC({cmd:'pick_file', target:'f2'})">Chọn File</button>
-        </div>
-      </div>
-
-      <div class="action-group">
-        <button class="btn btn-primary" style="padding: 12px 18px; font-size: 13.5px;" onclick="sendIPC({cmd:'process_cc'})">▶ Bắt đầu Xử lý</button>
-        <button class="btn" style="padding: 12px 14px;" onclick="openSettingsModal()">⚙ Cài đặt ca</button>
-      </div>
-
-      <div class="hints">
-        <span class="hint-red">💡 MẸO: Chọn trực tiếp tên Ca ở cột Timetable để đổi ca và tính lại công tức thì.</span>
-        <span class="hint-blue">⚡ HỆ THỐNG: Tự động đọc file .xls BIFF2 giả mạo, bù vân tay Ca Đêm & tô màu cảnh báo.</span>
-      </div>
-    </div>
-
-    <div class="filter-bar">
-      <div class="filter-item">
-        <label>Ngày:</label>
-        <button class="btn" id="btnFilterDate" onclick="toggleDropdown('ddDate', event)">Tất cả Ngày ▾</button>
-        <div class="multi-dropdown" id="ddDate" onclick="event.stopPropagation()">
-          <input type="text" class="multi-search" id="searchDate" placeholder="Tìm ngày..." oninput="renderMultiList('date')">
-          <div class="multi-actions">
-            <button class="btn" onclick="selectAllMulti('date', true)">Chọn tất cả</button>
-            <button class="btn" onclick="selectAllMulti('date', false)">Bỏ chọn</button>
-          </div>
-          <div class="multi-list" id="listDate"></div>
-        </div>
-      </div>
-
-      <div class="filter-item">
-        <label>MSNV:</label>
-        <button class="btn" id="btnFilterMsnv" onclick="toggleDropdown('ddMsnv', event)">Tất cả MSNV ▾</button>
-        <div class="multi-dropdown" id="ddMsnv" onclick="event.stopPropagation()">
-          <input type="text" class="multi-search" id="searchMsnv" placeholder="Tìm MSNV..." oninput="renderMultiList('msnv')">
-          <div class="multi-actions">
-            <button class="btn" onclick="selectAllMulti('msnv', true)">Chọn tất cả</button>
-            <button class="btn" onclick="selectAllMulti('msnv', false)">Bỏ chọn</button>
-          </div>
-          <div class="multi-list" id="listMsnv"></div>
-        </div>
-      </div>
-
-      <div class="filter-item">
-        <label>Ca làm:</label>
-        <select class="std-select" id="selTimetable" onchange="renderTableCC()">
-          <option value="Tất cả">Tất cả</option>
-        </select>
-      </div>
-
-      <div class="filter-item">
-        <label>Work Time:</label>
-        <select class="std-select" id="selWorkTime" onchange="renderTableCC()">
-          <option value="Tất cả">Tất cả</option>
-          <option value="Bù vân tay">Bù vân tay</option>
-        </select>
-      </div>
-
-      <button class="btn btn-warning" onclick="resetFiltersCC()">↻ Xóa Lọc / Tải Lại</button>
-    </div>
-
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr id="theadCC"></tr>
-        </thead>
-        <tbody id="tbodyCC"></tbody>
-      </table>
-    </div>
-
-    <div class="bottom-bar">
-      <div class="bottom-buttons">
-        <button class="btn btn-success" style="padding: 8px 18px; font-size: 13px;" onclick="sendIPC({cmd:'export_cc'})">📥 Xuất Bảng Dữ Liệu</button>
-        <button class="btn btn-danger" style="padding: 8px 18px; font-size: 13px;" onclick="sendIPC({cmd:'export_fixed'})">📊 Xuất Theo Form Cố Định</button>
-      </div>
-      <div class="row-counter" id="lblCountCC">Hiển thị: 0 dòng</div>
-    </div>
-  </div>
-
-  <!-- ==================== TAB 2: XIN PHÉP ==================== -->
-  <div class="tab-view" id="viewXP">
-    <div class="control-card">
-      <div class="file-group">
-        <div class="file-row">
-          <span class="file-label">1. Dữ liệu đầu vào:</span>
-          <div class="file-box" id="lblFileXp">Chưa chọn file</div>
-          <button class="btn" onclick="sendIPC({cmd:'pick_file', target:'fxp'})">Chọn File</button>
-        </div>
-        <div class="file-row">
-          <span class="file-label">2. File số dư nghỉ bù:</span>
-          <div class="file-box" id="lblFileNb">Chưa chọn file (Tùy chọn)</div>
-          <button class="btn" onclick="sendIPC({cmd:'pick_file', target:'fnb'})">Chọn File</button>
-          <button class="btn btn-danger" id="btnClearNb" style="display:none; padding: 4px 8px;" onclick="sendIPC({cmd:'clear_nb'})">✖ Bỏ file</button>
-        </div>
-        <div class="file-row">
-          <span class="file-label">3. File số dư phép năm:</span>
-          <div class="file-box" id="lblFilePn">Chưa chọn file (Tùy chọn)</div>
-          <button class="btn" onclick="sendIPC({cmd:'pick_file', target:'fpn'})">Chọn File</button>
-          <button class="btn btn-danger" id="btnClearPn" style="display:none; padding: 4px 8px;" onclick="sendIPC({cmd:'clear_pn'})">✖ Bỏ file</button>
-        </div>
-      </div>
-
-      <div class="action-group">
-        <button class="btn btn-primary" style="padding: 10px 16px;" onclick="sendIPC({cmd:'process_xp'})">▶ Xử lý dữ liệu</button>
-        <button class="btn btn-success" style="padding: 10px 16px;" onclick="sendIPC({cmd:'export_xp'})">📥 Xuất kết quả</button>
-        <button class="btn btn-warning" style="padding: 10px 16px;" onclick="sendIPC({cmd:'export_nb'})">📊 Xuất Số Dư Nghỉ Bù</button>
-        <button class="btn" style="padding: 10px 14px;" onclick="openSettingsModal()">⚙ Cài đặt ca</button>
-      </div>
-    </div>
-
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr id="theadXP"></tr>
-        </thead>
-        <tbody id="tbodyXP"></tbody>
-      </table>
-    </div>
-
-    <div class="bottom-bar">
-      <span class="hint-blue">💡 Các dòng có Dropdown ở cột "*Loại hình xin phép" cho phép chuyển đổi linh hoạt giữa Phép năm (1 ngày = 8H) / Nghỉ bù, chia 2 dòng hoặc nhường Nghỉ bù xuống dòng dưới.</span>
-      <div class="row-counter" id="lblCountXP">Tổng cộng: 0 dòng</div>
-    </div>
-  </div>
-
-  <!-- MODAL CÀI ĐẶT GIỜ CA -->
-  <div class="modal-backdrop" id="settingsModal">
-    <div class="modal-card">
-      <div class="modal-title">⚙ Cài đặt giờ ca (Chuẩn 24h)</div>
-      <div class="shift-grid">
-        <span>Hành chính (HC):</span>
-        <input type="text" id="inpHcS" value="07:30">
-        <span style="text-align:center">-</span>
-        <input type="text" id="inpHcE" value="17:00">
-
-        <span>Ca 1 (Sáng):</span>
-        <input type="text" id="inpCa1S" value="07:00">
-        <span style="text-align:center">-</span>
-        <input type="text" id="inpCa1E" value="15:00">
-
-        <span>Ca 2 (Chiều):</span>
-        <input type="text" id="inpCa2S" value="15:00">
-        <span style="text-align:center">-</span>
-        <input type="text" id="inpCa2E" value="23:00">
-
-        <span>Ca 3 (Đêm):</span>
-        <input type="text" id="inpCa3S" value="23:00">
-        <span style="text-align:center">-</span>
-        <input type="text" id="inpCa3E" value="07:00">
-      </div>
-      <button class="btn" onclick="loadOldShiftPreset()">↺ Dùng form giờ cũ (06h-14h, 14h-22h, 22h-06h)</button>
-      <div style="display:flex; gap:10px; justify-content:center; margin-top:4px;">
-        <button class="btn btn-primary" style="flex:1" onclick="applySettings()">✔ Áp dụng</button>
-        <button class="btn btn-danger" style="flex:1" onclick="closeSettingsModal()">✖ Đóng</button>
-      </div>
-    </div>
-  </div>
-
-<script>
-  const CC_COLS = ["MSNV", "Name", "Date", "Timetable", "On duty", "Off duty", "Clock In", "Clock Out", "Late", "Early", "OT Time", "Work Time", "Kết Quả Công", "Nghỉ phép", "Tăng ca"];
-  const XP_COLS = ["MSNV", "Ngày", "*Loại hình xin phép", "*Thời gian bắt đầu xin phép", "*Thời gian kết thúc xin phép", "Lý do nghỉ phép"];
-
-  let appState = {
-    theme: "Sáng",
-    is_pinned: false,
-    file1: "", file2: "", file_xp: "", file_nb: "", file_pn: "",
-    shift_settings: { hc_start:"07:30", hc_end:"17:00", ca1_start:"07:00", ca1_end:"15:00", ca2_start:"15:00", ca2_end:"23:00", ca3_start:"23:00", ca3_end:"07:00" },
-    all_dates: [], all_msnvs: [], all_timetables: [],
-    cc_rows: [], xp_rows: []
-  };
-
-  let selectedDates = new Set();
-  let selectedMsnvs = new Set();
-
-  document.getElementById('theadCC').innerHTML = CC_COLS.map(c => `<th>${c}</th>`).join('');
-  document.getElementById('theadXP').innerHTML = XP_COLS.map(c => `<th>${c}</th>`).join('');
-
-  function sendIPC(payload) {
-    if (window.ipc) window.ipc.postMessage(JSON.stringify(payload));
-  }
-
-  function switchTab(tab) {
-    document.getElementById('tabBtnCC').classList.toggle('active', tab === 'CC');
-    document.getElementById('tabBtnXP').classList.toggle('active', tab === 'XP');
-    document.getElementById('viewCC').classList.toggle('active', tab === 'CC');
-    document.getElementById('viewXP').classList.toggle('active', tab === 'XP');
-  }
-
-  function cycleTheme() {
-    const order = ["Sáng", "Tối", "Neon"];
-    appState.theme = order[(order.indexOf(appState.theme) + 1) % order.length];
-    document.body.setAttribute('data-theme', appState.theme);
-    document.getElementById('btnTheme').textContent = `🎨 Giao diện: ${appState.theme}`;
-  }
-
-  window.addEventListener('click', () => {
-    document.getElementById('ddDate').classList.remove('open');
-    document.getElementById('ddMsnv').classList.remove('open');
-  });
-
-  function toggleDropdown(id, ev) {
-    ev.stopPropagation();
-    const other = id === 'ddDate' ? 'ddMsnv' : 'ddDate';
-    document.getElementById(other).classList.remove('open');
-    document.getElementById(id).classList.toggle('open');
-  }
-
-  function escHtml(str) {
-    return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }
-
-  window.updateFromRust = function(state, resetFilter) {
-    appState = state;
-    document.getElementById('lblFile1').textContent = state.file1 || 'Chưa chọn file';
-    document.getElementById('lblFile2').textContent = state.file2 || 'Chưa chọn file';
-    document.getElementById('lblFileXp').textContent = state.file_xp || 'Chưa chọn file';
-    document.getElementById('lblFileNb').textContent = state.file_nb || 'Chưa chọn file (Tùy chọn)';
-    document.getElementById('lblFilePn').textContent = state.file_pn || 'Chưa chọn file (Tùy chọn)';
-    document.getElementById('btnClearNb').style.display = state.file_nb ? 'inline-flex' : 'none';
-    document.getElementById('btnClearPn').style.display = state.file_pn ? 'inline-flex' : 'none';
-
-    const btnPin = document.getElementById('btnPin');
-    btnPin.textContent = state.is_pinned ? '📌 Ghim: BẬT' : '📌 Ghim: TẮT';
-    btnPin.classList.toggle('btn-pin-on', state.is_pinned);
-
-    const selTT = document.getElementById('selTimetable');
-    const prevTT = selTT.value;
-    selTT.innerHTML = `<option value="Tất cả">Tất cả</option>` +
-      state.all_timetables.map(t => `<option value="${escHtml(t)}">${escHtml(t)}</option>`).join('');
-    if (!resetFilter && state.all_timetables.includes(prevTT)) selTT.value = prevTT;
-
-    if (resetFilter) {
-      selectedDates.clear();
-      selectedMsnvs.clear();
-      document.getElementById('selWorkTime').value = 'Tất cả';
-    }
-
-    renderMultiList('date');
-    renderMultiList('msnv');
-    updateMultiBtnLabel('date');
-    updateMultiBtnLabel('msnv');
-    renderTableCC();
-    renderTableXP();
-  };
-
-  function renderMultiList(kind) {
-    const isDate = kind === 'date';
-    const allItems = isDate ? appState.all_dates : appState.all_msnvs;
-    const selSet = isDate ? selectedDates : selectedMsnvs;
-    const kw = document.getElementById(isDate ? 'searchDate' : 'searchMsnv').value.toLowerCase();
-    const container = document.getElementById(isDate ? 'listDate' : 'listMsnv');
-
-    container.innerHTML = allItems
-      .filter(it => !kw || it.toLowerCase().includes(kw))
-      .map(it => {
-        const chk = selSet.has(it) ? 'checked' : '';
-        return `<label class="multi-item"><input type="checkbox" ${chk} onchange="toggleMultiItem('${kind}', '${escHtml(it)}', this.checked)"> <span>${escHtml(it)}</span></label>`;
-      }).join('');
-  }
-
-  function toggleMultiItem(kind, val, checked) {
-    const set = kind === 'date' ? selectedDates : selectedMsnvs;
-    if (checked) set.add(val); else set.delete(val);
-    updateMultiBtnLabel(kind);
-    renderTableCC();
-  }
-
-  function selectAllMulti(kind, selectAll) {
-    const isDate = kind === 'date';
-    const allItems = isDate ? appState.all_dates : appState.all_msnvs;
-    const set = isDate ? selectedDates : selectedMsnvs;
-    const kw = document.getElementById(isDate ? 'searchDate' : 'searchMsnv').value.toLowerCase();
-    if (!selectAll) {
-      set.clear();
-    } else {
-      allItems.filter(it => !kw || it.toLowerCase().includes(kw)).forEach(it => set.add(it));
-    }
-    renderMultiList(kind);
-    updateMultiBtnLabel(kind);
-    renderTableCC();
-  }
-
-  function updateMultiBtnLabel(kind) {
-    const isDate = kind === 'date';
-    const allItems = isDate ? appState.all_dates : appState.all_msnvs;
-    const set = isDate ? selectedDates : selectedMsnvs;
-    const btn = document.getElementById(isDate ? 'btnFilterDate' : 'btnFilterMsnv');
-    const defTitle = isDate ? 'Tất cả Ngày' : 'Tất cả MSNV';
-
-    if (set.size === 0 || set.size === allItems.length) btn.textContent = `${defTitle} ▾`;
-    else if (set.size === 1) btn.textContent = `${Array.from(set)[0]} ▾`;
-    else btn.textContent = `Đã chọn ${set.size} mục ▾`;
-  }
-
-  function resetFiltersCC() {
-    selectedDates.clear();
-    selectedMsnvs.clear();
-    document.getElementById('selTimetable').value = 'Tất cả';
-    document.getElementById('selWorkTime').value = 'Tất cả';
-    renderMultiList('date');
-    renderMultiList('msnv');
-    updateMultiBtnLabel('date');
-    updateMultiBtnLabel('msnv');
-    renderTableCC();
-  }
-
-  function renderTableCC() {
-    const ttFilter = document.getElementById('selTimetable').value;
-    const wtFilter = document.getElementById('selWorkTime').value;
-    const shiftOpts = appState.all_timetables.length > 0
-      ? appState.all_timetables
-      : ["HC 7H30-17H00", "CA SANG MOI", "CA TRUA MOI", "CA DEM MOI"];
-
-    let count = 0;
-    const html = [];
-
-    appState.cc_rows.forEach((row, idx) => {
-      if (selectedDates.size > 0 && !selectedDates.has(row["Date"])) return;
-      if (selectedMsnvs.size > 0 && !selectedMsnvs.has(row["MSNV"])) return;
-      if (ttFilter !== "Tất cả" && row["Timetable"] !== ttFilter) return;
-      if (wtFilter === "Bù vân tay" && row["Work Time"] !== "Bù vân tay") return;
-
-      count++;
-      const isBvtRow = ["Work Time", "Clock In", "Clock Out", "Kết Quả Công"].some(k => row[k] === "Bù vân tay");
-      const trClass = isBvtRow ? 'class="row-bvt"' : '';
-
-      const tds = CC_COLS.map(col => {
-        const val = row[col] || "";
-        if (col === "Timetable") {
-          const opts = shiftOpts.map(o => `<option value="${escHtml(o)}" ${o === val ? 'selected' : ''}>${escHtml(o)}</option>`).join('');
-          return `<td><select class="cell-select" onchange="sendIPC({cmd:'change_tt', idx:${idx}, val:this.value})">${opts}</select></td>`;
+                                msg_box("Lỗi", "Vui lòng nhập đúng định dạng 24h HH:MM (VD: 07:30, 15:00)!", true);
+                            }
+                        }
+                        IpcCmd::ProcessCc => {
+                            app.process_cham_cong();
+                            reset_filter = true;
+                        }
+                        IpcCmd::ChangeTt { idx, val } => {
+                            if idx < app.data_result.len() {
+                                app.data_result[idx].insert("Timetable".into(), val);
+                                app.process_single_row(idx, true);
+                                app.refresh_timetable_options();
+                            }
+                        }
+                        IpcCmd::ExportCc => app.export_excel_cham_cong(),
+                        IpcCmd::ExportFixed => app.export_fixed_form(),
+                        IpcCmd::ProcessXp => app.process_xin_phep(),
+                        IpcCmd::XpUpperSkip { upper_idx, partial_idx, skip, can_swap } => {
+                            if let Some(u) = app.base_xp_items.get_mut(upper_idx) {
+                                u.skip_nb = skip;
+                                u.pn_choice = 2;
+                            }
+                            if let Some(p) = app.base_xp_items.get_mut(partial_idx) {
+                                if skip && can_swap { p.partial_mode = 2; }
+                                else if !skip && p.partial_mode == 2 { p.partial_mode = 0; }
+                            }
+                            app.rebuild_xp_display_rows();
+                        }
+                        IpcCmd::XpFourEightPn { base_idx, choice } => {
+                            if let Some(it) = app.base_xp_items.get_mut(base_idx) {
+                                it.pn_choice = choice; // 1 = Phép năm, 2 = Nghỉ bù
+                                it.skip_nb = false;
+                            }
+                            app.rebuild_xp_display_rows();
+                        }
+                        IpcCmd::XpPartialMode { partial_idx, upper_idx, mode } => {
+                            if let Some(p) = app.base_xp_items.get_mut(partial_idx) { p.partial_mode = mode; }
+                            if let Some(u_idx) = upper_idx {
+                                if let Some(u) = app.base_xp_items.get_mut(u_idx) {
+                                    u.skip_nb = mode == 2;
+                                    if mode == 2 { u.pn_choice = 2; }
+                                }
+                            }
+                            app.rebuild_xp_display_rows();
+                        }
+                        IpcCmd::ExportXp => app.export_excel_xin_phep(),
+                        IpcCmd::ExportNb => app.export_excel_so_du_nghi_bu(),
+                    }
+
+                    let payload = UiPayload {
+                        is_pinned: app.is_pinned,
+                        file1: file_name_only(&app.file1_path),
+                        file2: file_name_only(&app.file2_path),
+                        file_xp: file_name_only(&app.file_xp_path),
+                        file_nb: file_name_only(&app.file_nb_path),
+                        file_pn: file_name_only(&app.file_pn_path),
+                        shift_settings: &app.shift_settings,
+                        all_dates: &app.all_dates,
+                        all_msnvs: &app.all_msnvs,
+                        all_timetables: &app.all_timetables,
+                        cc_rows: &app.data_result,
+                        xp_rows: &app.data_xp_result,
+                    };
+                    if let Ok(js_data) = serde_json::to_string(&payload) {
+                        let script = format!("window.updateFromRust({}, {});", js_data, reset_filter);
+                        let _ = webview.evaluate_script(&script);
+                    }
+                }
+            }
+            _ => {}
         }
-        const isCellHl = val !== "" && (col === "Late" || col === "Early" || (col === "Nghỉ phép" && val !== "PLP"));
-        return `<td ${isCellHl ? 'class="cell-hl"' : ''}>${escHtml(val)}</td>`;
-      }).join('');
-
-      html.push(`<tr ${trClass}>${tds}</tr>`);
     });
+}
 
-    document.getElementById('tbodyCC').innerHTML = html.join('');
-    document.getElementById('lblCountCC').textContent = `Hiển thị: ${count} / ${appState.cc_rows.length} dòng`;
-  }
-
-  function renderTableXP() {
-    const html = appState.xp_rows.map(row => {
-      const isExtra = row["IsExtra"] === "True";
-      const menuKind = row["MenuKind"] || "";
-      const trClass = (isExtra || (menuKind !== "" && menuKind !== "FOUR_EIGHT")) ? 'class="row-xp-hl"' : '';
-
-      const tds = XP_COLS.map(col => {
-        const val = row[col] || "";
-        if (col === "*Loại hình xin phép" && menuKind !== "") {
-          const baseIdx = parseInt(row["BaseIdx"] || "0", 10);
-          if (menuKind === "UPPER") {
-            const pIdx = parseInt(row["LinkedPartialIdx"] || "0", 10);
-            const canSwap = row["CanSwap"] === "True";
-            const pnFirst = row["PnFirst"] === "True";
-            const curVal = row["CurVal"] || "0";
-            const opt3 = row["Opt3Label"] ? `<option value="2" ${curVal === "2" ? 'selected' : ''}>${escHtml(row["Opt3Label"])}</option>` : '';
-            return `<td>
-              <select class="cell-select" onchange="onUpperSelectChange(${baseIdx}, ${pIdx}, this.value, ${canSwap}, ${pnFirst})">
-                <option value="0" ${curVal === "0" ? 'selected' : ''}>${escHtml(row["Opt1Label"])}</option>
-                <option value="1" ${curVal === "1" ? 'selected' : ''}>${escHtml(row["Opt2Label"])}</option>
-                ${opt3}
-              </select>
-            </td>`;
-          } else if (menuKind === "FOUR_EIGHT") {
-            const curVal = row["CurVal"] || "0";
-            const pnFirst = row["PnFirst"] === "True";
-            return `<td>
-              <select class="cell-select" onchange="onFourEightChange(${baseIdx}, this.value, ${pnFirst})">
-                <option value="0" ${curVal === "0" ? 'selected' : ''}>${escHtml(row["Opt1Label"])}</option>
-                <option value="1" ${curVal === "1" ? 'selected' : ''}>${escHtml(row["Opt2Label"])}</option>
-              </select>
-            </td>`;
-          } else if (menuKind === "PARTIAL") {
-            const mode = parseInt(row["PartialMode"] || "0", 10);
-            const uIdx = row["LinkedUpperIdx"] !== undefined && row["LinkedUpperIdx"] !== "" ? parseInt(row["LinkedUpperIdx"], 10) : null;
-            const opt3 = row["Opt3Label"] ? `<option value="2" ${mode === 2 ? 'selected' : ''}>${escHtml(row["Opt3Label"])}</option>` : '';
-            return `<td>
-              <select class="cell-select" onchange="onPartialSelectChange(${baseIdx}, ${uIdx}, parseInt(this.value, 10))">
-                <option value="0" ${mode === 0 ? 'selected' : ''}>${escHtml(row["Opt1Label"])}</option>
-                <option value="1" ${mode === 1 ? 'selected' : ''}>${escHtml(row["Opt2Label"])}</option>
-                ${opt3}
-              </select>
-            </td>`;
-          }
+// =========================================================================
+// --- BẢN QUYỀN HWID & HỆ THỐNG ---
+// =========================================================================
+fn verify_hardware_license() -> Result<(), String> {
+    let mut cur = "UNKNOWN-HWID".to_string();
+    if let Ok(out) = Command::new("reg")
+        .args(["query", r"HKLM\SOFTWARE\Microsoft\Cryptography", "/v", "MachineGuid"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+    {
+        for line in String::from_utf8_lossy(&out.stdout).lines() {
+            if line.contains("MachineGuid") {
+                if let Some(id) = line.split_whitespace().last() {
+                    if !id.trim().is_empty() {
+                        cur = id.trim().to_uppercase();
+                        break;
+                    }
+                }
+            }
         }
-        return `<td>${escHtml(val)}</td>`;
-      }).join('');
-
-      return `<tr ${trClass}>${tds}</tr>`;
-    });
-
-    document.getElementById('tbodyXP').innerHTML = html.join('');
-    document.getElementById('lblCountXP').textContent = `Tổng cộng: ${appState.xp_rows.length} dòng`;
-  }
-
-  function onUpperSelectChange(upperIdx, partialIdx, valStr, canSwap, pnFirst) {
-    if (pnFirst) {
-      if (valStr === "0") {
-        sendIPC({ cmd: 'xp_four_eight_pn', base_idx: upperIdx, choice: 1 });
-      } else if (valStr === "1") {
-        sendIPC({ cmd: 'xp_four_eight_pn', base_idx: upperIdx, choice: 2 });
-      } else {
-        sendIPC({ cmd: 'xp_upper_skip', upper_idx: upperIdx, partial_idx: partialIdx, skip: true, can_swap: canSwap });
-      }
-    } else {
-      if (valStr === "2") {
-        sendIPC({ cmd: 'xp_four_eight_pn', base_idx: upperIdx, choice: 1 });
-      } else {
-        sendIPC({ cmd: 'xp_upper_skip', upper_idx: upperIdx, partial_idx: partialIdx, skip: valStr === "1", can_swap: canSwap });
-      }
     }
-  }
+    if cur == "UNKNOWN-HWID" { return Err(cur); }
+    let ok = ALLOWED_HWIDS_RAW
+        .lines()
+        .map(|l| l.split('#').next().unwrap_or("").split("//").next().unwrap_or("").trim().to_uppercase())
+        .any(|id| !id.is_empty() && id == cur);
+    if ok { Ok(()) } else { Err(cur) }
+}
 
-  function onFourEightChange(baseIdx, valStr, pnFirst) {
-    const choice = pnFirst
-      ? (valStr === "0" ? 1 : 2)
-      : (valStr === "0" ? 2 : 1);
-    sendIPC({ cmd: 'xp_four_eight_pn', base_idx: baseIdx, choice: choice });
-  }
+fn run_ps(cmd: &str) {
+    let _ = Command::new("powershell")
+        .args(["-NoProfile", "-Command", cmd])
+        .creation_flags(CREATE_NO_WINDOW)
+        .status();
+}
 
-  function onPartialSelectChange(partialIdx, upperIdx, mode) {
-    sendIPC({ cmd: 'xp_partial_mode', partial_idx: partialIdx, upper_idx: upperIdx, mode: mode });
-  }
+// =========================================================================
+// --- CẤU TRÚC DỮ LIỆU ---
+// =========================================================================
+#[derive(Clone, Serialize, Deserialize)]
+struct ShiftConfig {
+    hc_start: String, hc_end: String,
+    ca1_start: String, ca1_end: String,
+    ca2_start: String, ca2_end: String,
+    ca3_start: String, ca3_end: String,
+}
 
-  function openSettingsModal() {
-    const s = appState.shift_settings;
-    document.getElementById('inpHcS').value = s.hc_start;
-    document.getElementById('inpHcE').value = s.hc_end;
-    document.getElementById('inpCa1S').value = s.ca1_start;
-    document.getElementById('inpCa1E').value = s.ca1_end;
-    document.getElementById('inpCa2S').value = s.ca2_start;
-    document.getElementById('inpCa2E').value = s.ca2_end;
-    document.getElementById('inpCa3S').value = s.ca3_start;
-    document.getElementById('inpCa3E').value = s.ca3_end;
-    document.getElementById('settingsModal').classList.add('open');
-  }
+impl Default for ShiftConfig {
+    fn default() -> Self {
+        Self {
+            hc_start: "07:30".into(), hc_end: "17:00".into(),
+            ca1_start: "07:00".into(), ca1_end: "15:00".into(),
+            ca2_start: "15:00".into(), ca2_end: "23:00".into(),
+            ca3_start: "23:00".into(), ca3_end: "07:00".into(),
+        }
+    }
+}
 
-  function closeSettingsModal() {
-    document.getElementById('settingsModal').classList.remove('open');
-  }
+#[derive(Clone, Default)]
+struct NghiBuSummary {
+    msnv: String, ho_ten: String, to_chuc: String, vi_tri: String,
+    tong_so_du: f64, tong_khau_tru: f64, con_lai_ban_dau: f64,
+    da_dung_xin_phep: f64, con_lai_sau_tru: f64, don_vi: String,
+}
 
-  function loadOldShiftPreset() {
-    document.getElementById('inpHcS').value = "07:30";
-    document.getElementById('inpHcE').value = "17:00";
-    document.getElementById('inpCa1S').value = "06:00";
-    document.getElementById('inpCa1E').value = "14:00";
-    document.getElementById('inpCa2S').value = "14:00";
-    document.getElementById('inpCa2E').value = "22:00";
-    document.getElementById('inpCa3S').value = "22:00";
-    document.getElementById('inpCa3E').value = "06:00";
-  }
+#[derive(Clone)]
+struct BaseXpItem {
+    msnv: String, ngay: String, orig_loai: String, start: String, end: String,
+    lydo: String, is_extra: bool, has_lunch: bool,
+    skip_nb: bool,
+    pn_choice: u8,    // 0 = Tự động, 1 = Ép Phép năm, 2 = Ép Nghỉ bù
+    partial_mode: u8, // 0 = Giữ 1 dòng, 1 = Chia 2 dòng, 2 = Đổi dòng trên
+}
 
-  function applySettings() {
-    sendIPC({
-      cmd: 'save_settings',
-      settings: {
-        hc_start: document.getElementById('inpHcS').value,
-        hc_end: document.getElementById('inpHcE').value,
-        ca1_start: document.getElementById('inpCa1S').value,
-        ca1_end: document.getElementById('inpCa1E').value,
-        ca2_start: document.getElementById('inpCa2S').value,
-        ca2_end: document.getElementById('inpCa2E').value,
-        ca3_start: document.getElementById('inpCa3S').value,
-        ca3_end: document.getElementById('inpCa3E').value
-      }
-    });
-    closeSettingsModal();
-  }
-</script>
-</body>
-</html>
+#[derive(Clone, Default)]
+struct NaturalRowInfo {
+    is_upper_nb: bool, linked_partial_idx: Option<usize>,
+    is_partial: bool, linked_upper_idx: Option<usize>, can_swap_upper: bool,
+}
+
+#[derive(Default)]
+struct TimekeepApp {
+    is_pinned: bool,
+    file1_path: String, file2_path: String, file_xp_path: String, file_nb_path: String, file_pn_path: String,
+    data1_clean: Vec<HashMap<String, String>>,
+    data2_clean_map: HashMap<String, Vec<NaiveDateTime>>,
+    data_result: Vec<HashMap<String, String>>,
+    base_xp_items: Vec<BaseXpItem>,
+    base_nb_map: BTreeMap<String, NghiBuSummary>,
+    base_pn_map: BTreeMap<String, f64>, // Đơn vị: Ngày (1 ngày = 8H)
+    data_xp_result: Vec<HashMap<String, String>>,
+    nghi_bu_summary: BTreeMap<String, NghiBuSummary>,
+    all_dates: Vec<String>,
+    all_msnvs: Vec<String>,
+    all_timetables: Vec<String>,
+    shift_settings: ShiftConfig,
+}
+
+impl TimekeepApp {
+    // =========================================================================
+    // --- LOGIC TAB 1: CHẤM CÔNG ---
+    // =========================================================================
+    fn process_cham_cong(&mut self) {
+        if self.file1_path.is_empty() || self.file2_path.is_empty() {
+            msg_box("Cảnh báo", "Vui lòng chọn đủ cả 2 file!", true);
+            return;
+        }
+        let raw_df1 = match read_file_to_dicts(&self.file1_path) {
+            Ok(d) => d,
+            Err(e) => { msg_box("Lỗi đọc File 1", &e, true); return; }
+        };
+        let raw_df2 = match read_file_to_dicts(&self.file2_path) {
+            Ok(d) => d,
+            Err(e) => { msg_box("Lỗi đọc File 2", &e, true); return; }
+        };
+
+        if raw_df1.is_empty() || !raw_df1[0].contains_key("AC-No.") {
+            msg_box("Lỗi dữ liệu", "Không tìm thấy cột 'AC-No.' trong File 1!", true);
+            return;
+        }
+        let time_cols = ["Thời gian quẹt thẻ", "Thời gian quẹt thẻ lên ca", "Thời gian quẹt thẻ xuống ca"];
+        if raw_df2.is_empty() || !raw_df2[0].contains_key("Mã số nhân viên") || !time_cols.iter().any(|&c| raw_df2[0].contains_key(c)) {
+            msg_box("Lỗi dữ liệu", "File 2 thiếu cột 'Mã số nhân viên' hoặc cột thời gian quẹt thẻ!", true);
+            return;
+        }
+
+        self.data1_clean.clear();
+        for row in &raw_df1 {
+            let mut nr = row_map!("MSNV" => normalize_msnv(get_val(row, "AC-No.")));
+            for col in ["Name", "Date", "Timetable", "On duty", "Off duty", "Clock In", "Clock Out", "Late", "Early", "OT Time", "Work Time"] {
+                let v = get_val(row, col);
+                let clean = if col == "Date" && !v.is_empty() { convert_to_dmy(v) }
+                    else if col == "Timetable" && !v.is_empty() { clean_shift_spaces(v) }
+                    else if matches!(col, "On duty" | "Off duty" | "Clock In" | "Clock Out") && !v.is_empty() { normalize_time_str(v) }
+                    else { v.to_string() };
+                nr.insert(col.into(), clean);
+            }
+            self.data1_clean.push(nr);
+        }
+
+        self.data2_clean_map.clear();
+        for row in &raw_df2 {
+            let msnv = normalize_msnv(get_val(row, "Mã số nhân viên"));
+            if !msnv.is_empty() {
+                for &tc in &time_cols {
+                    if let Some(dt) = parse_datetime_flexible(get_val(row, tc)) {
+                        self.data2_clean_map.entry(msnv.clone()).or_default().push(dt);
+                    }
+                }
+            }
+        }
+
+        self.data_result = self.data1_clean.clone();
+        for i in 0..self.data_result.len() {
+            self.process_single_row(i, false);
+        }
+
+        let mut dates: Vec<(NaiveDate, String)> = self.data_result.iter()
+            .filter_map(|r| NaiveDate::parse_from_str(get_val(r, "Date"), "%d/%m/%Y").ok().map(|d| (d, get_val(r, "Date").to_string())))
+            .collect();
+        dates.sort_by_key(|k| k.0);
+        dates.dedup_by(|a, b| a.1 == b.1);
+        self.all_dates = dates.into_iter().map(|x| x.1).collect();
+
+        self.all_msnvs = self.data_result.iter().map(|r| get_val(r, "MSNV").to_string()).filter(|s| !s.is_empty()).collect::<BTreeSet<_>>().into_iter().collect();
+        self.refresh_timetable_options();
+
+        msg_box("Thành công", "Xử lý dữ liệu hoàn tất!", false);
+    }
+
+    fn refresh_timetable_options(&mut self) {
+        self.all_timetables = self.data1_clean.iter().chain(self.data_result.iter())
+            .map(|r| get_val(r, "Timetable").to_string())
+            .filter(|s| !s.is_empty())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+    }
+
+    fn process_single_row(&mut self, idx: usize, force_recalc: bool) {
+        let orig = self.data1_clean[idx].clone();
+        let msnv = get_val(&orig, "MSNV").to_string();
+        let cur_tt = get_val(&self.data_result[idx], "Timetable").to_string();
+        let tt_up = clean_shift_spaces(&cur_tt.to_uppercase());
+        let (mut is_hc, mut is_ca1, mut is_ca2, mut is_ca3) = classify_shift(&tt_up, "", "");
+
+        let (mut on_d, mut off_d) = if !force_recalc {
+            (normalize_time_str(get_val(&orig, "On duty")), normalize_time_str(get_val(&orig, "Off duty")))
+        } else if let Some(s) = self.data1_clean.iter().find(|r| get_val(r, "Timetable").eq_ignore_ascii_case(&cur_tt) && !get_val(r, "On duty").is_empty() && !get_val(r, "Off duty").is_empty()) {
+            (normalize_time_str(get_val(s, "On duty")), normalize_time_str(get_val(s, "Off duty")))
+        } else {
+            (String::new(), String::new())
+        };
+
+        if on_d.is_empty() || off_d.is_empty() {
+            (on_d, off_d) = if is_hc {
+                if tt_up.contains("15H30") || tt_up.contains("15:30") { ("07:30".into(), "15:30".into()) }
+                else { (self.shift_settings.hc_start.clone(), self.shift_settings.hc_end.clone()) }
+            } else if is_ca1 { (self.shift_settings.ca1_start.clone(), self.shift_settings.ca1_end.clone()) }
+            else if is_ca2 { (self.shift_settings.ca2_start.clone(), self.shift_settings.ca2_end.clone()) }
+            else if is_ca3 { (self.shift_settings.ca3_start.clone(), self.shift_settings.ca3_end.clone()) }
+            else { (on_d, off_d) };
+        }
+        (is_hc, is_ca1, is_ca2, is_ca3) = classify_shift(&tt_up, &on_d, &off_d);
+
+        let mut avail: Vec<String> = [normalize_time_str(get_val(&orig, "Clock In")), normalize_time_str(get_val(&orig, "Clock Out"))]
+            .into_iter().filter(|s| !s.is_empty() && s != "Bù vân tay").collect();
+
+        let (mut c_in, mut c_out) = (String::new(), String::new());
+        if is_ca3 {
+            for t in &avail {
+                if let Some(hm) = parse_hm(t) {
+                    if hm.hour() >= 15 && c_in.is_empty() { c_in = t.clone(); }
+                    else if hm.hour() < 14 { c_out = t.clone(); }
+                }
+            }
+        }
+        if c_in.is_empty() && c_out.is_empty() {
+            if avail.len() == 2 {
+                avail.sort();
+                (c_in, c_out) = if is_ca3 { (avail[1].clone(), avail[0].clone()) } else { (avail[0].clone(), avail[1].clone()) };
+            } else if avail.len() == 1 {
+                let t = avail[0].clone();
+                if let (Some(t_dt), Some(on_dt), Some(off_dt)) = (parse_hm(&t), parse_hm(&on_d), parse_hm(&off_d)) {
+                    if min_dist_seconds(t_dt, on_dt) <= min_dist_seconds(t_dt, off_dt) { c_in = t; } else { c_out = t; }
+                } else { c_in = t; }
+            }
+        }
+
+        let mut filled_hr = false;
+        if c_in.is_empty() || c_out.is_empty() {
+            if let (Ok(d_val), Some(on_t), Some(off_t), Some(swipes)) = (
+                NaiveDate::parse_from_str(get_val(&orig, "Date"), "%d/%m/%Y"),
+                parse_hm(&on_d), parse_hm(&off_d), self.data2_clean_map.get(&msnv),
+            ) {
+                if is_ca3 {
+                    let t_in = (d_val - Duration::days(1)).and_time(on_t);
+                    let mut t_out = d_val.and_time(off_t);
+                    if t_out <= t_in { t_out += Duration::days(1); }
+
+                    if c_in.is_empty() {
+                        let w_start = t_in - Duration::hours(5);
+                        let w_end = parse_hm(&c_out).map(|hm| if hm.hour() < 18 { d_val.and_time(hm) } else { (d_val - Duration::days(1)).and_time(hm) }).unwrap_or(t_out);
+                        if let Some(m_in) = swipes.iter().filter(|&&s| if !c_out.is_empty() { s >= w_start && s < w_end } else { s >= w_start && s <= t_in + Duration::hours(5) }).min() {
+                            let cand = m_in.format("%H:%M").to_string();
+                            if cand != c_out { c_in = cand; filled_hr = true; }
+                        }
+                    }
+                    if c_out.is_empty() {
+                        let w_start = parse_hm(&c_in).map(|hm| if hm.hour() >= 12 { (d_val - Duration::days(1)).and_time(hm) } else { d_val.and_time(hm) }).unwrap_or(t_in);
+                        let w_end = t_out + Duration::hours(3);
+                        if let Some(m_out) = swipes.iter().filter(|&&s| if !c_in.is_empty() { s > w_start && s <= w_end } else { s >= t_out - Duration::hours(4) && s <= w_end }).max() {
+                            let cand = m_out.format("%H:%M").to_string();
+                            if cand != c_in { c_out = cand; filled_hr = true; }
+                        }
+                    }
+                } else {
+                    let t_in = d_val.and_time(on_t);
+                    let mut t_out = d_val.and_time(off_t);
+                    if t_out <= t_in { t_out += Duration::days(1); }
+
+                    if c_in.is_empty() {
+                        let min_b = std::cmp::max(t_in - Duration::hours(4), d_val.and_hms_opt(0, 0, 0).unwrap());
+                        let max_b = parse_hm(&c_out).map(|hm| d_val.and_time(hm)).unwrap_or(t_out - Duration::hours(1));
+                        if let Some(m_in) = swipes.iter().filter(|&&s| s >= min_b && s < max_b).min() {
+                            let cand = m_in.format("%H:%M").to_string();
+                            if cand != c_out { c_in = cand; filled_hr = true; }
+                        }
+                    }
+                    if c_out.is_empty() {
+                        let min_b = parse_hm(&c_in).map(|hm| d_val.and_time(hm)).unwrap_or(t_in + Duration::hours(1));
+                        let max_b = std::cmp::min(t_out + Duration::hours(8), d_val.and_hms_opt(23, 59, 59).unwrap());
+                        if let Some(m_out) = swipes.iter().filter(|&&s| s > min_b && s <= max_b).max() {
+                            let cand = m_out.format("%H:%M").to_string();
+                            if cand != c_in { c_out = cand; filled_hr = true; }
+                        }
+                    }
+                }
+            }
+        }
+
+        let res = &mut self.data_result[idx];
+        res.insert("On duty".into(), on_d.clone());
+        res.insert("Off duty".into(), off_d.clone());
+        res.insert("Clock In".into(), c_in.clone());
+        res.insert("Clock Out".into(), c_out.clone());
+        for k in ["Work Time", "Late", "Early", "OT Time"] {
+            res.insert(k.into(), if force_recalc || filled_hr { String::new() } else { get_val(&orig, k).to_string() });
+        }
+        for k in ["Kết Quả Công", "Nghỉ phép", "Tăng ca"] {
+            res.insert(k.into(), String::new());
+        }
+
+        if c_in.is_empty() && c_out.is_empty() {
+            res.insert("Nghỉ phép".into(), "PLP".into());
+        } else if c_in.is_empty() {
+            res.insert("Clock In".into(), "Bù vân tay".into());
+            res.insert("Work Time".into(), "Bù vân tay".into());
+        } else if c_out.is_empty() {
+            res.insert("Clock Out".into(), "Bù vân tay".into());
+            res.insert("Work Time".into(), "Bù vân tay".into());
+        }
+
+        let mut wt = get_val(res, "Work Time").to_string();
+        let mut recalc = force_recalc || filled_hr || wt.is_empty() || wt == "00:00";
+        if !recalc && is_hc && !c_in.is_empty() && !c_out.is_empty() && c_in != "Bù vân tay" && c_out != "Bù vân tay" {
+            if let (Some(tin), Some(tout)) = (parse_hm(&c_in), parse_hm(&c_out)) {
+                let d0 = NaiveDate::from_ymd_opt(2000, 1, 2).unwrap();
+                let (dt_in, mut dt_out) = (d0.and_time(tin), d0.and_time(tout));
+                if dt_out < dt_in { dt_out += Duration::days(1); }
+                if (dt_out - dt_in).num_seconds() <= (5.5 * 3600.0) as i64 { recalc = true; }
+            }
+        }
+
+        if recalc && !c_in.is_empty() && !c_out.is_empty() && c_in != "Bù vân tay" && c_out != "Bù vân tay" {
+            if let (Some(tin), Some(tout), Some(on_hm), Some(off_hm)) = (parse_hm(&c_in), parse_hm(&c_out), parse_hm(&on_d), parse_hm(&off_d)) {
+                let d0 = NaiveDate::from_ymd_opt(2000, 1, 2).unwrap();
+                let (dt_on, dt_off, dt_in, dt_out) = if is_ca3 {
+                    let on_dt = (d0 - Duration::days(1)).and_time(on_hm);
+                    let mut off_dt = d0.and_time(off_hm);
+                    if off_dt <= on_dt { off_dt += Duration::days(1); }
+                    let in_dt = if tin.hour() >= 12 { (d0 - Duration::days(1)).and_time(tin) } else { d0.and_time(tin) };
+                    let mut out_dt = if tout.hour() < 18 { d0.and_time(tout) } else { (d0 - Duration::days(1)).and_time(tout) };
+                    if out_dt <= in_dt { out_dt += Duration::days(1); }
+                    (on_dt, off_dt, in_dt, out_dt)
+                } else {
+                    let on_dt = d0.and_time(on_hm);
+                    let mut off_dt = d0.and_time(off_hm);
+                    if off_dt <= on_dt { off_dt += Duration::days(1); }
+                    let (mut in_dt, mut out_dt) = (d0.and_time(tin), d0.and_time(tout));
+                    if in_dt < on_dt && (on_dt - in_dt).num_seconds() > 12 * 3600 { in_dt += Duration::days(1); }
+                    else if in_dt > on_dt && (in_dt - on_dt).num_seconds() > 12 * 3600 { in_dt -= Duration::days(1); }
+                    if out_dt <= in_dt { out_dt += Duration::days(1); }
+                    (on_dt, off_dt, in_dt, out_dt)
+                };
+
+                let (eff_in, eff_out) = (dt_in.max(dt_on), dt_out.min(dt_off));
+                let mut total_sec = (eff_out - eff_in).num_seconds().max(0);
+                let has_lunch = is_hc && (off_d.contains("17:00") || off_d.contains("17H00"));
+                let (ls, le) = (dt_on.date().and_hms_opt(11, 30, 0).unwrap(), dt_on.date().and_hms_opt(13, 0, 0).unwrap());
+
+                if has_lunch { total_sec -= overlap_secs(eff_in, eff_out, ls, le); }
+                total_sec = total_sec.min(8 * 3600);
+                res.insert("Work Time".into(), fmt_hm_sec(total_sec, true));
+
+                let mut late_s = (dt_in - dt_on).num_seconds().max(0);
+                if has_lunch && late_s > 0 { late_s -= overlap_secs(dt_on, dt_in, ls, le); }
+                res.insert("Late".into(), fmt_hm_sec(late_s, false));
+
+                let mut early_s = (dt_off - dt_out).num_seconds().max(0);
+                if has_lunch && early_s > 0 { early_s -= overlap_secs(dt_out, dt_off, ls, le); }
+                res.insert("Early".into(), fmt_hm_sec(early_s, false));
+            }
+        }
+
+        wt = get_val(res, "Work Time").to_string();
+        let mut kq = String::new();
+        if !wt.is_empty() && wt != "Bù vân tay" {
+            let hm = if wt.contains(':') {
+                let p: Vec<&str> = wt.split(':').collect();
+                p.first().and_then(|h| h.parse::<i64>().ok()).zip(p.get(1).and_then(|m| m.parse::<i64>().ok()))
+            } else {
+                wt.parse::<f64>().ok().map(|f| (f.trunc() as i64, ((f - f.trunc()) * 60.0).round() as i64))
+            };
+            if let Some((h, m)) = hm {
+                let suf = if on_d == self.shift_settings.ca1_start && off_d == self.shift_settings.ca1_end { "C1" }
+                    else if on_d == self.shift_settings.ca2_start && off_d == self.shift_settings.ca2_end { "C2" }
+                    else if on_d == self.shift_settings.ca3_start && off_d == self.shift_settings.ca3_end { "C3" }
+                    else if on_d == self.shift_settings.hc_start { "" }
+                    else if is_ca1 { "C1" } else if is_ca2 { "C2" } else if is_ca3 { "C3" } else { "" };
+
+                let num_w = h as f64 + if m >= 30 { 0.5 } else { 0.0 };
+                kq = if suf.is_empty() { format_num_clean(num_w) } else { format!("{}{}{}", h, if m >= 30 { ".5" } else { "" }, suf) };
+                if get_val(res, "Nghỉ phép") != "PLP" && num_w < 8.0 {
+                    res.insert("Nghỉ phép".into(), format!("{}VR", format_num_clean(8.0 - num_w)));
+                }
+            }
+        } else if wt == "Bù vân tay" {
+            kq = "Bù vân tay".into();
+        }
+        res.insert("Kết Quả Công".into(), kq);
+    }
+
+    // =========================================================================
+    // --- LOGIC TAB 2: XIN PHÉP, NGHỈ BÙ & PHÉP NĂM (1 NGÀY = 8H) ---
+    // =========================================================================
+    fn load_nghi_bu_map(&self, filter: Option<&HashSet<String>>) -> Result<BTreeMap<String, NghiBuSummary>, String> {
+        let mut map = BTreeMap::new();
+        if self.file_nb_path.is_empty() { return Ok(map); }
+        let raw = read_file_to_dicts(&self.file_nb_path)?;
+        if raw.is_empty() { return Ok(map); }
+        if !raw[0].contains_key("Mã số nhân viên") || !raw[0].contains_key("Còn lại") {
+            return Err("File số dư nghỉ bù thiếu cột 'Mã số nhân viên' hoặc cột 'Còn lại'!".into());
+        }
+        for row in &raw {
+            let msnv = normalize_msnv(get_val(row, "Mã số nhân viên"));
+            if msnv.is_empty() || filter.map_or(false, |s| !s.contains(&msnv)) { continue; }
+            let e = map.entry(msnv.clone()).or_insert_with(|| NghiBuSummary {
+                msnv, ho_ten: get_val(row, "Họ tên").into(), to_chuc: get_val(row, "Tổ chức").into(),
+                vi_tri: get_val(row, "Vị trí").into(),
+                don_vi: { let d = get_val(row, "Đơn vị"); if d.is_empty() { "Giờ".into() } else { d.into() } },
+                ..Default::default()
+            });
+            e.tong_so_du += parse_f64(get_val(row, "Tổng số dư"));
+            e.tong_khau_tru += parse_f64(get_val(row, "Tổng số khấu trừ"));
+            e.con_lai_ban_dau += parse_f64(get_val(row, "Còn lại"));
+            e.con_lai_sau_tru = e.con_lai_ban_dau;
+        }
+        Ok(map)
+    }
+
+    fn load_phep_nam_map(&self, filter: Option<&HashSet<String>>) -> Result<BTreeMap<String, f64>, String> {
+        let mut map = BTreeMap::new();
+        if self.file_pn_path.is_empty() { return Ok(map); }
+        let raw = read_file_to_dicts(&self.file_pn_path)?;
+        if raw.is_empty() { return Ok(map); }
+
+        let has_msnv = raw[0].contains_key("MSNV") || raw[0].contains_key("Mã số nhân viên");
+        if !has_msnv || !raw[0].contains_key("Tổng số dư") {
+            return Err("File phép năm thiếu cột 'MSNV' hoặc cột 'Tổng số dư'!".into());
+        }
+
+        for row in &raw {
+            let raw_id = {
+                let m = get_val(row, "MSNV");
+                if m.is_empty() { get_val(row, "Mã số nhân viên") } else { m }
+            };
+            let msnv = normalize_msnv(raw_id);
+            if msnv.is_empty() || filter.map_or(false, |s| !s.contains(&msnv)) { continue; }
+            let so_du_ngay = parse_f64(get_val(row, "Tổng số dư"));
+            *map.entry(msnv).or_insert(0.0) += so_du_ngay;
+        }
+        Ok(map)
+    }
+
+    fn process_xin_phep(&mut self) {
+        if self.file_xp_path.is_empty() {
+            msg_box("Cảnh báo", "Vui lòng chọn file dữ liệu đầu vào trước!", true);
+            return;
+        }
+        let raw_data = match read_file_to_dicts(&self.file_xp_path) {
+            Ok(d) => d,
+            Err(e) => { msg_box("Lỗi đọc file", &e, true); return; }
+        };
+        if raw_data.is_empty() { return; }
+
+        let req_cols = ["Bất thường chấm công", "Mã số nhân viên", "Ngày", "Thời gian quẹt thẻ lên ca", "Thời gian quẹt thẻ xuống ca", "Số ca làm việc trong ngày"];
+        let missing: Vec<&str> = req_cols.into_iter().filter(|&c| !raw_data[0].contains_key(c)).collect();
+        if !missing.is_empty() {
+            msg_box("Lỗi dữ liệu", &format!("File đầu vào thiếu các cột:\n{}", missing.join(", ")), true);
+            return;
+        }
+
+        let mut shift_dict = HashMap::new();
+        let mut filtered = Vec::new();
+        for row in &raw_data {
+            let m = normalize_msnv(get_val(row, "Mã số nhân viên"));
+            let s = clean_shift_spaces(&get_val(row, "Số ca làm việc trong ngày").to_uppercase());
+            if !m.is_empty() {
+                if let Some(d) = parse_date_only_flexible(get_val(row, "Ngày")) { shift_dict.insert((m, d), s); }
+            }
+            if get_val(row, "Bất thường chấm công").eq_ignore_ascii_case("phải") { filtered.push(row.clone()); }
+        }
+
+        self.base_xp_items.clear();
+        for row in &filtered {
+            let msnv = normalize_msnv(get_val(row, "Mã số nhân viên"));
+            let raw_d = get_val(row, "Ngày");
+            let s_name = clean_shift_spaces(&get_val(row, "Số ca làm việc trong ngày").to_uppercase());
+            let t_in_opt = parse_datetime_flexible(get_val(row, "Thời gian quẹt thẻ lên ca"));
+            let t_out_opt = parse_datetime_flexible(get_val(row, "Thời gian quẹt thẻ xuống ca"));
+            let t_in_s = t_in_opt.map(|d| d.format("%Y-%m-%d %H:%M").to_string()).unwrap_or_default();
+            let t_out_s = t_out_opt.map(|d| d.format("%Y-%m-%d %H:%M").to_string()).unwrap_or_default();
+            let date_out = raw_d.replace(" 00:00:00", "").trim().to_string();
+            let is_night = s_name.contains("ĐÊM") || s_name.contains("DEM") || s_name.contains("CA 3") || s_name.contains("CA3");
+            let raw_d_opt = parse_date_only_flexible(raw_d);
+
+            let start_d = if is_night {
+                if let Some(tin) = t_in_opt { Some(if tin.hour() >= 12 { tin.date() } else { tin.date() - Duration::days(1) }) }
+                else if let Some(tout) = t_out_opt { Some(if tout.hour() < 14 { tout.date() - Duration::days(1) } else { tout.date() }) }
+                else { raw_d_opt.map(|d| d - Duration::days(1)) }
+            } else {
+                t_in_opt.map(|d| d.date()).or_else(|| t_out_opt.map(|d| d.date())).or(raw_d_opt)
+            };
+
+            let Some(base_d) = start_d else {
+                self.base_xp_items.push(BaseXpItem {
+                    msnv, ngay: date_out, orig_loai: "LỖI DỮ LIỆU: KHÔNG ĐỌC ĐƯỢC NGÀY".into(),
+                    start: String::new(), end: String::new(), lydo: "Kiểm tra lại dữ liệu gốc".into(),
+                    is_extra: false, has_lunch: false, skip_nb: false, pn_choice: 0, partial_mode: 0,
+                });
+                continue;
+            };
+            let Some((s_start, s_end)) = self.get_shift_times_xp(base_d, &s_name) else {
+                self.base_xp_items.push(BaseXpItem {
+                    msnv, ngay: date_out, orig_loai: "LỖI DỮ LIỆU: KHÔNG NHẬN DIỆN ĐƯỢC CA".into(),
+                    start: String::new(), end: String::new(), lydo: format!("Ca bị lỗi: {}", s_name),
+                    is_extra: false, has_lunch: false, skip_nb: false, pn_choice: 0, partial_mode: 0,
+                });
+                continue;
+            };
+
+            let is_hc = s_name.contains("HC") || s_name.contains("HÀNH CHÍNH") || s_name.contains("HANH CHINH") || s_name.contains("7H30-17");
+            let has_lunch = is_hc && (s_end - s_start).num_minutes() > 480;
+            let mut recs: Vec<(String, String, String, bool)> = match (t_in_opt, t_out_opt) {
+                (None, None) => vec![("ACTR PHÉP NĂM".into(), s_start.format("%Y-%m-%d %H:%M").to_string(), s_end.format("%Y-%m-%d %H:%M").to_string(), false)],
+                (None, Some(_)) => vec![("ACTR VIỆC RIÊNG".into(), "Kiểm tra xếp ca/Bù vân tay".into(), t_out_s, false)],
+                (Some(_), None) => vec![("ACTR VIỆC RIÊNG".into(), t_in_s, "Kiểm tra xếp ca/Bù vân tay".into(), false)],
+                (Some(tin), Some(tout)) => {
+                    let late_end = |dt: NaiveDateTime| {
+                        let (ls, le) = (dt.date().and_hms_opt(11, 30, 0).unwrap(), dt.date().and_hms_opt(13, 0, 0).unwrap());
+                        if has_lunch && dt >= ls && dt <= le { ls } else { ceil30(dt) }
+                    };
+                    let early_start = |dt: NaiveDateTime| {
+                        let (ls, le) = (dt.date().and_hms_opt(11, 30, 0).unwrap(), dt.date().and_hms_opt(13, 0, 0).unwrap());
+                        if has_lunch && dt >= ls && dt <= le { le } else { floor30(dt) }
+                    };
+                    match (tin > s_start, tout < s_end) {
+                        (true, true) => vec![
+                            ("ACTR VIỆC RIÊNG".into(), s_start.format("%Y-%m-%d %H:%M").to_string(), late_end(tin).format("%Y-%m-%d %H:%M").to_string(), false),
+                            ("ACTR VIỆC RIÊNG".into(), early_start(tout).format("%Y-%m-%d %H:%M").to_string(), s_end.format("%Y-%m-%d %H:%M").to_string(), true),
+                        ],
+                        (true, false) => vec![("ACTR VIỆC RIÊNG".into(), s_start.format("%Y-%m-%d %H:%M").to_string(), late_end(tin).format("%Y-%m-%d %H:%M").to_string(), false)],
+                        (false, true) => vec![("ACTR VIỆC RIÊNG".into(), early_start(tout).format("%Y-%m-%d %H:%M").to_string(), s_end.format("%Y-%m-%d %H:%M").to_string(), false)],
+                        (false, false) => vec![("ACTR VIỆC RIÊNG".into(), t_in_s, t_out_s, false)],
+                    }
+                }
+            };
+
+            let next_d = raw_d_opt.unwrap_or(base_d) + Duration::days(1);
+            let next_s = shift_dict.get(&(msnv.clone(), next_d)).cloned().unwrap_or_default();
+            if (t_in_opt.is_none() || t_out_opt.is_none()) && is_hc && (next_s.contains("CA 3") || next_s.contains("CA3") || next_s.contains("ĐÊM") || next_s.contains("DEM")) {
+                recs = vec![("ACTR PHÉP NĂM".into(), s_start.format("%Y-%m-%d %H:%M").to_string(), s_end.format("%Y-%m-%d %H:%M").to_string(), false)];
+            }
+
+            for (mut loai, st, end, extra) in recs {
+                if calc_leave_mins(&st, &end, has_lunch).map_or(false, |m| m >= 480) {
+                    loai = "ACTR PHÉP NĂM".into();
+                }
+                self.base_xp_items.push(BaseXpItem {
+                    msnv: msnv.clone(), ngay: date_out.clone(), orig_loai: loai.clone(),
+                    start: st, end, lydo: loai, is_extra: extra, has_lunch,
+                    skip_nb: false, pn_choice: 0, partial_mode: 0,
+                });
+            }
+        }
+
+        let xp_msnvs: HashSet<String> = self.base_xp_items.iter().map(|r| r.msnv.clone()).filter(|s| !s.is_empty()).collect();
+
+        self.base_nb_map.clear();
+        if !self.file_nb_path.is_empty() {
+            match self.load_nghi_bu_map(Some(&xp_msnvs)) {
+                Ok(mut nb_map) => {
+                    for m in &xp_msnvs {
+                        nb_map.entry(m.clone()).or_insert_with(|| NghiBuSummary { msnv: m.clone(), don_vi: "Giờ".into(), ..Default::default() });
+                    }
+                    self.base_nb_map = nb_map;
+                }
+                Err(e) => msg_box("Cảnh báo file Nghỉ bù", &e, true),
+            }
+        }
+
+        self.base_pn_map.clear();
+        if !self.file_pn_path.is_empty() {
+            match self.load_phep_nam_map(Some(&xp_msnvs)) {
+                Ok(pn_map) => self.base_pn_map = pn_map,
+                Err(e) => msg_box("Cảnh báo file Phép năm", &e, true),
+            }
+        }
+
+        let (full_nb, splittable) = self.rebuild_xp_display_rows();
+        let extra = if !self.file_nb_path.is_empty() || !self.file_pn_path.is_empty() {
+            format!("\n(Đã chuyển {} dòng đủ giờ sang ACTR NGHỈ BÙ; có {} trường hợp thiếu giờ nghỉ bù có thể bấm chọn Dropdown để đổi phương án)", full_nb, splittable)
+        } else { String::new() };
+        msg_box("Thành công", &format!("Đã xử lý xong {} dòng kết quả xin phép!{}", self.data_xp_result.len(), extra), false);
+    }
+
+    fn analyze_natural_nb_links(&self) -> Vec<NaturalRowInfo> {
+        let mut info = vec![NaturalRowInfo::default(); self.base_xp_items.len()];
+        if self.file_nb_path.is_empty() || self.base_nb_map.is_empty() { return info; }
+
+        let mut rem_map: HashMap<String, i64> = self.base_nb_map.iter()
+            .map(|(k, v)| (k.clone(), ((v.con_lai_ban_dau * 60.0).round() as i64 / 30) * 30)).collect();
+        let has_pn = !self.file_pn_path.is_empty();
+        let mut pn_rem_map: HashMap<String, i64> = self.base_pn_map.iter()
+            .map(|(k, &days)| (k.clone(), ((days * 480.0).round() as i64 / 30) * 30)).collect();
+
+        let mut upper_map: HashMap<String, Vec<(usize, i64)>> = HashMap::new();
+        let mut done: HashSet<String> = HashSet::new();
+
+        for (idx, it) in self.base_xp_items.iter().enumerate() {
+            let Some(req) = calc_leave_mins(&it.start, &it.end, it.has_lunch) else { continue; };
+            let is_4_or_8 = req == 240 || req == 480;
+
+            if is_4_or_8 {
+                let pn_avail = pn_rem_map.get(&it.msnv).copied().unwrap_or(0);
+                if has_pn && pn_avail >= req && it.pn_choice != 2 {
+                    if let Some(p) = pn_rem_map.get_mut(&it.msnv) { *p -= req; }
+                    continue;
+                }
+                if !has_pn && it.pn_choice == 1 {
+                    continue;
+                }
+            }
+
+            let Some(rem) = rem_map.get_mut(&it.msnv) else { continue; };
+
+            if *rem >= req {
+                *rem -= req;
+                if !done.contains(&it.msnv) {
+                    upper_map.entry(it.msnv.clone()).or_default().push((idx, req));
+                }
+            } else if *rem > 0 && *rem < req && !done.contains(&it.msnv) {
+                done.insert(it.msnv.clone());
+                info[idx].is_partial = true;
+                let nat_rem = *rem;
+                if let Some(uppers) = upper_map.get(&it.msnv) {
+                    if !uppers.is_empty() {
+                        let swapped = uppers.iter().rev().find(|&&(_, u_m)| nat_rem + u_m >= req).map(|&(u_i, _)| u_i);
+                        let u_idx = swapped.unwrap_or(uppers.last().unwrap().0);
+                        let can_swap = swapped.is_some();
+                        info[idx].linked_upper_idx = Some(u_idx);
+                        info[idx].can_swap_upper = can_swap;
+                        info[u_idx].is_upper_nb = true;
+                        info[u_idx].linked_partial_idx = Some(idx);
+                        info[u_idx].can_swap_upper = can_swap;
+                    }
+                }
+            }
+        }
+        info
+    }
+
+    fn rebuild_xp_display_rows(&mut self) -> (usize, usize) {
+        self.data_xp_result.clear();
+        let mut nb_map = self.base_nb_map.clone();
+        let has_nb = !self.file_nb_path.is_empty() && !nb_map.is_empty();
+        let has_pn = !self.file_pn_path.is_empty();
+        let mut pn_rem_map: HashMap<String, i64> = self.base_pn_map.iter()
+            .map(|(k, &days)| (k.clone(), ((days * 480.0).round() as i64 / 30) * 30)).collect();
+
+        let nat_infos = self.analyze_natural_nb_links();
+        let (mut full_cnt, mut split_cnt) = (0, 0);
+
+        for (idx, it) in self.base_xp_items.iter().enumerate() {
+            let nat = &nat_infos[idx];
+            let req_opt = calc_leave_mins(&it.start, &it.end, it.has_lunch);
+            let is_four_or_eight = req_opt.map_or(false, |m| m == 240 || m == 480);
+
+            let pn_avail_m = if has_pn {
+                pn_rem_map.get(&it.msnv).copied().unwrap_or(0)
+            } else {
+                999_999
+            };
+            let can_use_pn = is_four_or_eight && req_opt.map_or(false, |req_m| pn_avail_m >= req_m);
+
+            let fallback_loai = if has_pn && is_four_or_eight && !can_use_pn && it.orig_loai == "ACTR PHÉP NĂM" {
+                "ACTR VIỆC RIÊNG".to_string()
+            } else {
+                it.orig_loai.clone()
+            };
+
+            let mut row = row_map!(
+                "MSNV" => &it.msnv, "Ngày" => &it.ngay, "*Loại hình xin phép" => &fallback_loai,
+                "*Thời gian bắt đầu xin phép" => &it.start, "*Thời gian kết thúc xin phép" => &it.end,
+                "Lý do nghỉ phép" => &fallback_loai, "IsExtra" => if it.is_extra { "True" } else { "False" },
+                "MenuKind" => "", "BaseIdx" => idx
+            );
+
+            if !has_nb {
+                if let Some(req_m) = req_opt {
+                    if is_four_or_eight && has_pn {
+                        if can_use_pn {
+                            if let Some(p) = pn_rem_map.get_mut(&it.msnv) { *p -= req_m; }
+                            row.insert("*Loại hình xin phép".into(), "ACTR PHÉP NĂM".into());
+                            row.insert("Lý do nghỉ phép".into(), "ACTR PHÉP NĂM".into());
+                        } else {
+                            row.insert("*Loại hình xin phép".into(), "ACTR VIỆC RIÊNG".into());
+                            row.insert("Lý do nghỉ phép".into(), "ACTR VIỆC RIÊNG".into());
+                        }
+                    }
+                }
+                self.data_xp_result.push(row);
+                continue;
+            }
+
+            if let (Some(req_m), Some(sum)) = (req_opt, nb_map.get_mut(&it.msnv)) {
+                let avail_m = ((sum.con_lai_sau_tru * 60.0).round() as i64 / 30) * 30;
+                let req_h = req_m as f64 / 60.0;
+                let req_days = req_m as f64 / 480.0;
+
+                // 1. Dòng bên trên có liên kết với dòng 2TH bên dưới
+                if nat.is_upper_nb {
+                    row.insert("MenuKind".into(), "UPPER".into());
+                    row.insert("LinkedPartialIdx".into(), nat.linked_partial_idx.unwrap_or(idx).to_string());
+                    row.insert("CanSwap".into(), if nat.can_swap_upper { "True" } else { "False" }.into());
+
+                    if can_use_pn && has_pn {
+                        row.insert("PnFirst".into(), "True".into());
+                        row.insert("Opt1Label".into(), format!("TH1 (Phép năm): ACTR PHÉP NĂM ({}h = {} ngày)", format_num_clean(req_h), format_num_clean(req_days)));
+                        row.insert("Opt2Label".into(), format!("TH2 (Nghỉ bù): ACTR NGHỈ BÙ ({}h)", format_num_clean(req_h)));
+                        row.insert("Opt3Label".into(), if nat.can_swap_upper {
+                            "TH3: Đổi dòng này thành VIỆC RIÊNG & Dòng dưới thành NGHỈ BÙ".into()
+                        } else {
+                            "TH3: Đổi dòng này thành VIỆC RIÊNG (Nhường nghỉ bù xuống dưới)".into()
+                        });
+
+                        let use_pn = !it.skip_nb && it.pn_choice != 2;
+                        if use_pn {
+                            if let Some(p) = pn_rem_map.get_mut(&it.msnv) { *p -= req_m; }
+                            row.insert("*Loại hình xin phép".into(), "ACTR PHÉP NĂM".into());
+                            row.insert("Lý do nghỉ phép".into(), "ACTR PHÉP NĂM".into());
+                            row.insert("CurVal".into(), "0".into());
+                        } else if it.skip_nb {
+                            row.insert("*Loại hình xin phép".into(), "ACTR VIỆC RIÊNG".into());
+                            row.insert("Lý do nghỉ phép".into(), "ACTR VIỆC RIÊNG".into());
+                            row.insert("CurVal".into(), "2".into());
+                            row.insert("IsExtra".into(), "True".into());
+                        } else if avail_m >= req_m {
+                            sum.con_lai_sau_tru = ((sum.con_lai_sau_tru - req_h) * 100.0).round() / 100.0;
+                            sum.da_dung_xin_phep = ((sum.da_dung_xin_phep + req_h) * 100.0).round() / 100.0;
+                            row.insert("*Loại hình xin phép".into(), "ACTR NGHỈ BÙ".into());
+                            row.insert("Lý do nghỉ phép".into(), "ACTR NGHỈ BÙ".into());
+                            row.insert("CurVal".into(), "1".into());
+                            full_cnt += 1;
+                        }
+                    } else {
+                        row.insert("PnFirst".into(), "False".into());
+                        row.insert("Opt1Label".into(), format!("TH1 (Giữ nguyên): ACTR NGHỈ BÙ ({}h)", format_num_clean(req_h)));
+                        row.insert("Opt2Label".into(), if nat.can_swap_upper {
+                            "TH2: Đổi dòng này thành VIỆC RIÊNG & Dòng dưới thành NGHỈ BÙ".into()
+                        } else {
+                            "TH2: Đổi dòng này thành VIỆC RIÊNG (Nhường nghỉ bù xuống dưới)".into()
+                        });
+                        if can_use_pn {
+                            row.insert("Opt3Label".into(), format!("TH3: Đổi thành ACTR PHÉP NĂM ({}h - Giữ nghỉ bù cho dòng sau)", format_num_clean(req_h)));
+                        }
+
+                        if it.pn_choice == 1 && can_use_pn {
+                            row.insert("*Loại hình xin phép".into(), "ACTR PHÉP NĂM".into());
+                            row.insert("Lý do nghỉ phép".into(), "ACTR PHÉP NĂM".into());
+                            row.insert("CurVal".into(), "2".into());
+                        } else if it.skip_nb {
+                            row.insert("*Loại hình xin phép".into(), "ACTR VIỆC RIÊNG".into());
+                            row.insert("Lý do nghỉ phép".into(), "ACTR VIỆC RIÊNG".into());
+                            row.insert("CurVal".into(), "1".into());
+                            row.insert("IsExtra".into(), "True".into());
+                        } else if avail_m >= req_m {
+                            sum.con_lai_sau_tru = ((sum.con_lai_sau_tru - req_h) * 100.0).round() / 100.0;
+                            sum.da_dung_xin_phep = ((sum.da_dung_xin_phep + req_h) * 100.0).round() / 100.0;
+                            row.insert("*Loại hình xin phép".into(), "ACTR NGHỈ BÙ".into());
+                            row.insert("Lý do nghỉ phép".into(), "ACTR NGHỈ BÙ".into());
+                            row.insert("CurVal".into(), "0".into());
+                            full_cnt += 1;
+                        }
+                    }
+                    self.data_xp_result.push(row);
+                    continue;
+                }
+
+                // 2. Dòng phát sinh 2TH (hoặc 3TH) do thiếu giờ nghỉ bù
+                if nat.is_partial {
+                    split_cnt += 1;
+                    let th1_loai = if is_four_or_eight {
+                        if can_use_pn { "ACTR PHÉP NĂM".to_string() } else { "ACTR VIỆC RIÊNG".to_string() }
+                    } else {
+                        fallback_loai.clone()
+                    };
+
+                    row.insert("MenuKind".into(), "PARTIAL".into());
+                    row.insert("PartialMode".into(), it.partial_mode.to_string());
+                    if let Some(u_i) = nat.linked_upper_idx { row.insert("LinkedUpperIdx".into(), u_i.to_string()); }
+                    row.insert("Opt1Label".into(), if is_four_or_eight && can_use_pn && has_pn {
+                        format!("TH1 (Xin phép năm - 1 dòng): ACTR PHÉP NĂM ({}h = {} ngày)", format_num_clean(req_h), format_num_clean(req_days))
+                    } else {
+                        format!("TH1 (Giữ ban đầu - 1 dòng): {}", th1_loai)
+                    });
+                    row.insert("Opt3Label".into(), if nat.can_swap_upper {
+                        format!("TH3: Đổi dòng trên thành VIỆC RIÊNG & Dòng này thành NGHỈ BÙ ({}h)", format_num_clean(req_h))
+                    } else { String::new() });
+
+                    if it.partial_mode == 2 && avail_m >= req_m {
+                        sum.con_lai_sau_tru = ((sum.con_lai_sau_tru - req_h) * 100.0).round().max(0.0) / 100.0;
+                        sum.da_dung_xin_phep = ((sum.da_dung_xin_phep + req_h) * 100.0).round() / 100.0;
+                        row.insert("Opt2Label".into(), "TH2 (Chia 2 dòng): ACTR NGHỈ BÙ + ACTR VIỆC RIÊNG".into());
+                        row.insert("*Loại hình xin phép".into(), "ACTR NGHỈ BÙ".into());
+                        row.insert("Lý do nghỉ phép".into(), "ACTR NGHỈ BÙ".into());
+                        row.insert("IsExtra".into(), "True".into());
+                        full_cnt += 1;
+                        self.data_xp_result.push(row);
+                        continue;
+                    }
+
+                    let split_m = avail_m.min(req_m - 30).max(30);
+                    let (nb_h, vr_h) = (split_m as f64 / 60.0, (req_m - split_m) as f64 / 60.0);
+                    row.insert("Opt2Label".into(), format!("TH2 (Chia 2 dòng): NGHỈ BÙ ({}h) + VIỆC RIÊNG ({}h)", format_num_clean(nb_h), format_num_clean(vr_h)));
+
+                    if it.partial_mode == 1 && avail_m > 0 {
+                        if let Some(((r1_s, r1_e), (r2_s, r2_e))) = split_leave_interval(&it.start, &it.end, split_m, it.has_lunch) {
+                            sum.con_lai_sau_tru = ((sum.con_lai_sau_tru - nb_h) * 100.0).round().max(0.0) / 100.0;
+                            sum.da_dung_xin_phep = ((sum.da_dung_xin_phep + nb_h) * 100.0).round() / 100.0;
+
+                            let mut r1 = row.clone();
+                            r1.insert("*Loại hình xin phép".into(), "ACTR NGHỈ BÙ".into());
+                            r1.insert("*Thời gian bắt đầu xin phép".into(), r1_s);
+                            r1.insert("*Thời gian kết thúc xin phép".into(), r1_e);
+                            r1.insert("Lý do nghỉ phép".into(), "ACTR NGHỈ BÙ".into());
+                            r1.insert("IsExtra".into(), "True".into());
+
+                            let mut r2 = row;
+                            r2.insert("*Loại hình xin phép".into(), "ACTR VIỆC RIÊNG".into());
+                            r2.insert("*Thời gian bắt đầu xin phép".into(), r2_s);
+                            r2.insert("*Thời gian kết thúc xin phép".into(), r2_e);
+                            r2.insert("Lý do nghỉ phép".into(), "ACTR VIỆC RIÊNG".into());
+                            r2.insert("IsExtra".into(), "True".into());
+
+                            self.data_xp_result.push(r1);
+                            self.data_xp_result.push(r2);
+                            continue;
+                        }
+                    }
+
+                    if th1_loai == "ACTR PHÉP NĂM" && has_pn && can_use_pn {
+                        if let Some(p) = pn_rem_map.get_mut(&it.msnv) { *p -= req_m; }
+                    }
+                    row.insert("*Loại hình xin phép".into(), th1_loai.clone());
+                    row.insert("Lý do nghỉ phép".into(), th1_loai);
+                    self.data_xp_result.push(row);
+                    continue;
+                }
+
+                // 3. Các dòng bình thường khác
+                if avail_m >= req_m {
+                    if is_four_or_eight && can_use_pn {
+                        row.insert("MenuKind".into(), "FOUR_EIGHT".into());
+                        if has_pn {
+                            row.insert("PnFirst".into(), "True".into());
+                            row.insert("Opt1Label".into(), format!("TH1: ACTR PHÉP NĂM ({}h = {} ngày)", format_num_clean(req_h), format_num_clean(req_days)));
+                            row.insert("Opt2Label".into(), format!("TH2: ACTR NGHỈ BÙ ({}h)", format_num_clean(req_h)));
+                            let use_pn = it.pn_choice != 2;
+                            if use_pn {
+                                if let Some(p) = pn_rem_map.get_mut(&it.msnv) { *p -= req_m; }
+                                row.insert("*Loại hình xin phép".into(), "ACTR PHÉP NĂM".into());
+                                row.insert("Lý do nghỉ phép".into(), "ACTR PHÉP NĂM".into());
+                                row.insert("CurVal".into(), "0".into());
+                            } else {
+                                sum.con_lai_sau_tru = ((sum.con_lai_sau_tru - req_h) * 100.0).round() / 100.0;
+                                sum.da_dung_xin_phep = ((sum.da_dung_xin_phep + req_h) * 100.0).round() / 100.0;
+                                row.insert("*Loại hình xin phép".into(), "ACTR NGHỈ BÙ".into());
+                                row.insert("Lý do nghỉ phép".into(), "ACTR NGHỈ BÙ".into());
+                                row.insert("CurVal".into(), "1".into());
+                                full_cnt += 1;
+                            }
+                        } else {
+                            row.insert("PnFirst".into(), "False".into());
+                            row.insert("Opt1Label".into(), format!("TH1: ACTR NGHỈ BÙ ({}h)", format_num_clean(req_h)));
+                            row.insert("Opt2Label".into(), format!("TH2: ACTR PHÉP NĂM ({}h - Giữ nghỉ bù lại)", format_num_clean(req_h)));
+                            if it.pn_choice == 1 {
+                                row.insert("*Loại hình xin phép".into(), "ACTR PHÉP NĂM".into());
+                                row.insert("Lý do nghỉ phép".into(), "ACTR PHÉP NĂM".into());
+                                row.insert("CurVal".into(), "1".into());
+                            } else {
+                                sum.con_lai_sau_tru = ((sum.con_lai_sau_tru - req_h) * 100.0).round() / 100.0;
+                                sum.da_dung_xin_phep = ((sum.da_dung_xin_phep + req_h) * 100.0).round() / 100.0;
+                                row.insert("*Loại hình xin phép".into(), "ACTR NGHỈ BÙ".into());
+                                row.insert("Lý do nghỉ phép".into(), "ACTR NGHỈ BÙ".into());
+                                row.insert("CurVal".into(), "0".into());
+                                full_cnt += 1;
+                            }
+                        }
+                    } else {
+                        sum.con_lai_sau_tru = ((sum.con_lai_sau_tru - req_h) * 100.0).round() / 100.0;
+                        sum.da_dung_xin_phep = ((sum.da_dung_xin_phep + req_h) * 100.0).round() / 100.0;
+                        row.insert("*Loại hình xin phép".into(), "ACTR NGHỈ BÙ".into());
+                        row.insert("Lý do nghỉ phép".into(), "ACTR NGHỈ BÙ".into());
+                        full_cnt += 1;
+                    }
+                } else if is_four_or_eight && has_pn {
+                    if can_use_pn {
+                        if let Some(p) = pn_rem_map.get_mut(&it.msnv) { *p -= req_m; }
+                        row.insert("*Loại hình xin phép".into(), "ACTR PHÉP NĂM".into());
+                        row.insert("Lý do nghỉ phép".into(), "ACTR PHÉP NĂM".into());
+                    } else {
+                        row.insert("*Loại hình xin phép".into(), "ACTR VIỆC RIÊNG".into());
+                        row.insert("Lý do nghỉ phép".into(), "ACTR VIỆC RIÊNG".into());
+                    }
+                }
+            }
+            self.data_xp_result.push(row);
+        }
+
+        self.nghi_bu_summary = nb_map;
+        (full_cnt, split_cnt)
+    }
+
+    fn get_shift_times_xp(&self, base_d: NaiveDate, shift_name: &str) -> Option<(NaiveDateTime, NaiveDateTime)> {
+        let sn = clean_shift_spaces(&shift_name.to_uppercase());
+        if sn.contains("7H30-15H30") || sn.contains("7:30-15:30") {
+            return Some((base_d.and_hms_opt(7, 30, 0)?, base_d.and_hms_opt(15, 30, 0)?));
+        }
+        let pair = if sn.contains("HC") || sn.contains("HÀNH CHÍNH") || sn.contains("HANH CHINH") || sn.contains("7H30-17") {
+            Some((&self.shift_settings.hc_start, &self.shift_settings.hc_end))
+        } else if sn.contains("SÁNG") || sn.contains("SANG") || sn.contains("CA 1") || sn.contains("CA1") {
+            Some((&self.shift_settings.ca1_start, &self.shift_settings.ca1_end))
+        } else if sn.contains("TRƯA") || sn.contains("TRUA") || sn.contains("CHIỀU") || sn.contains("CHIEU") || sn.contains("CA 2") || sn.contains("CA2") {
+            Some((&self.shift_settings.ca2_start, &self.shift_settings.ca2_end))
+        } else if sn.contains("ĐÊM") || sn.contains("DEM") || sn.contains("CA 3") || sn.contains("CA3") {
+            Some((&self.shift_settings.ca3_start, &self.shift_settings.ca3_end))
+        } else { None };
+
+        if let Some((s, e)) = pair {
+            if let (Some(st), Some(et)) = (parse_hm(s), parse_hm(e)) {
+                let s_dt = base_d.and_time(st);
+                let mut e_dt = base_d.and_time(et);
+                if e_dt <= s_dt { e_dt += Duration::days(1); }
+                return Some((s_dt, e_dt));
+            }
+        }
+        let c = Regex::new(r"(\d{1,2})[H:](\d{2})\s*-\s*(\d{1,2})[H:](\d{2})").unwrap().captures(&sn)?;
+        let s_dt = base_d.and_hms_opt(c[1].parse().ok()?, c[2].parse().ok()?, 0)?;
+        let mut e_dt = base_d.and_hms_opt(c[3].parse().ok()?, c[4].parse().ok()?, 0)?;
+        if e_dt <= s_dt { e_dt += Duration::days(1); }
+        Some((s_dt, e_dt))
+    }
+
+    // =========================================================================
+    // --- XUẤT 4 BÁO CÁO EXCEL (.XLSX) ---
+    // =========================================================================
+    fn export_excel_cham_cong(&self) {
+        if self.data_result.is_empty() { msg_box("Cảnh báo", "Không có dữ liệu để xuất!", true); return; }
+        let Some(path) = save_excel_file(&format!("Bao_Cao_Cham_Cong_{}.xlsx", Local::now().format("%d_%m_%Y"))) else { return };
+
+        let mut wb = Workbook::new();
+        let ws = wb.add_worksheet();
+        let (fmt_h, fmt_n, fmt_y) = excel_formats();
+
+        for (c, &name) in CC_COLUMNS.iter().enumerate() { let _ = ws.write_with_format(0, c as u16, name, &fmt_h); }
+        for (r, row) in self.data_result.iter().enumerate() {
+            let r_idx = (r + 1) as u32;
+            let is_bvt = ["Work Time", "Clock In", "Clock Out", "Kết Quả Công"].iter().any(|&k| get_val(row, k) == "Bù vân tay");
+            for (c, &col) in CC_COLUMNS.iter().enumerate() {
+                let val = get_val(row, col);
+                let hl = is_bvt || (!val.is_empty() && ((col == "Work Time" && val != "08:00") || matches!(col, "Late" | "Early" | "OT Time") || (col == "Nghỉ phép" && val != "PLP")));
+                let fmt = if hl { &fmt_y } else { &fmt_n };
+                if col == "Kết Quả Công" {
+                    if let Ok(n) = val.parse::<f64>() { let _ = ws.write_number_with_format(r_idx, c as u16, n, fmt); continue; }
+                }
+                let _ = ws.write_string_with_format(r_idx, c as u16, val, fmt);
+            }
+        }
+        ws.autofit();
+        save_wb(wb, &path, "Xuất bảng Excel thành công!");
+    }
+
+    fn export_fixed_form(&self) {
+        if self.data_result.is_empty() { msg_box("Cảnh báo", "Bạn chưa xử lý dữ liệu!", true); return; }
+        let Some(path) = save_excel_file(&format!("Form_Bao_Cao_Tong_Hop_{}.xlsx", Local::now().format("%d_%m_%Y"))) else { return };
+
+        let mut wb = Workbook::new();
+        let ws = wb.add_worksheet();
+        let _ = ws.set_name("Báo Cáo");
+        let (fmt_b, fmt_n, fmt_y) = excel_formats();
+        let fmt_cb = Format::new().set_bold().set_align(FormatAlign::Center).set_border(FormatBorder::Thin);
+
+        let mut dates: Vec<NaiveDate> = self.data_result.iter().filter_map(|r| NaiveDate::parse_from_str(get_val(r, "Date"), "%d/%m/%Y").ok()).collect();
+        dates.sort(); dates.dedup();
+
+        let (mut emps, mut seen) = (Vec::new(), HashSet::new());
+        for r in &self.data_result {
+            let m = get_val(r, "MSNV").to_string();
+            if !m.is_empty() && seen.insert(m.clone()) { emps.push((m, get_val(r, "Name").to_string())); }
+        }
+
+        let _ = ws.write_string_with_format(0, 0, "MSNV", &fmt_b);
+        let _ = ws.write_string_with_format(0, 1, "Họ Tên", &fmt_b);
+        let _ = ws.write_string_with_format(1, 0, "", &fmt_b);
+        let _ = ws.write_string_with_format(1, 1, "", &fmt_b);
+
+        for (i, dt) in dates.iter().enumerate() {
+            let c_idx = (2 + i * 2) as u16;
+            let _ = ws.merge_range(0, c_idx, 0, c_idx + 1, dt.format("%d").to_string().trim_start_matches('0'), &fmt_cb);
+            let _ = ws.write_string_with_format(1, c_idx, "Kết Quả Công", &fmt_b);
+            let _ = ws.write_string_with_format(1, c_idx + 1, "Nghỉ phép", &fmt_b);
+        }
+
+        for (i, (msnv, name)) in emps.iter().enumerate() {
+            let r_idx = (i + 2) as u32;
+            let _ = ws.write_string_with_format(r_idx, 0, msnv, &fmt_n);
+            let _ = ws.write_string_with_format(r_idx, 1, name, &fmt_n);
+            for (j, dt) in dates.iter().enumerate() {
+                let c_idx = (2 + j * 2) as u16;
+                let d_str = dt.format("%d/%m/%Y").to_string();
+                if let Some(rec) = self.data_result.iter().find(|r| get_val(r, "MSNV") == msnv && get_val(r, "Date") == d_str) {
+                    let (kq, np) = (get_val(rec, "Kết Quả Công"), get_val(rec, "Nghỉ phép"));
+                    let fmt_kq = if kq == "Bù vân tay" { &fmt_y } else { &fmt_n };
+                    let fmt_np = if !np.is_empty() && np != "PLP" { &fmt_y } else { &fmt_n };
+                    if let Ok(num) = kq.parse::<f64>() { let _ = ws.write_number_with_format(r_idx, c_idx, num, fmt_kq); }
+                    else { let _ = ws.write_string_with_format(r_idx, c_idx, kq, fmt_kq); }
+                    let _ = ws.write_string_with_format(r_idx, c_idx + 1, np, fmt_np);
+                } else {
+                    let _ = ws.write_string_with_format(r_idx, c_idx, "", &fmt_n);
+                    let _ = ws.write_string_with_format(r_idx, c_idx + 1, "", &fmt_n);
+                }
+            }
+        }
+        ws.autofit();
+        save_wb(wb, &path, "Đã xuất báo cáo theo Form cố định thành công!");
+    }
+
+    fn export_excel_xin_phep(&self) {
+        if self.data_xp_result.is_empty() { msg_box("Cảnh báo", "Bạn chưa Xử lý dữ liệu. Không có gì để xuất!", true); return; }
+        let Some(path) = save_excel_file(&format!("Ket_Qua_Xin_Phep_{}.xlsx", Local::now().format("%d_%m_%Y"))) else { return };
+
+        let mut wb = Workbook::new();
+        let ws = wb.add_worksheet();
+        let _ = ws.set_name("Báo Cáo");
+        let (fmt_h, fmt_n, fmt_y) = excel_formats();
+
+        for (c, &name) in XP_COLUMNS.iter().enumerate() { let _ = ws.write_string_with_format(0, c as u16, name, &fmt_h); }
+        for (r, row) in self.data_xp_result.iter().enumerate() {
+            let r_idx = (r + 1) as u32;
+            let is_ex = get_val(row, "IsExtra") == "True";
+            for (c, &col) in XP_COLUMNS.iter().enumerate() {
+                let val = get_val(row, col);
+                let hl = val.contains("Kiểm tra xếp ca/Bù vân tay") || val.contains("LỖI DỮ LIỆU") || is_ex;
+                let _ = ws.write_string_with_format(r_idx, c as u16, val, if hl { &fmt_y } else { &fmt_n });
+            }
+        }
+        ws.autofit();
+        match wb.save(&path) {
+            Ok(_) => {
+                inject_excel_dropdown(&path, self.data_xp_result.len() + 1);
+                msg_box("Thành công", "Đã xuất file Xin Phép thành công!", false);
+            }
+            Err(e) => msg_box("Lỗi", &format!("Đã xảy ra lỗi khi lưu file:\n{}", e), true),
+        }
+    }
+
+    fn export_excel_so_du_nghi_bu(&mut self) {
+        if self.file_nb_path.is_empty() { msg_box("Cảnh báo", "Vui lòng chọn File số dư nghỉ bù trước!", true); return; }
+        let map = if !self.nghi_bu_summary.is_empty() {
+            self.nghi_bu_summary.clone()
+        } else {
+            let filter = (!self.data_xp_result.is_empty()).then(|| {
+                self.data_xp_result.iter().map(|r| normalize_msnv(get_val(r, "MSNV"))).filter(|s| !s.is_empty()).collect::<HashSet<_>>()
+            });
+            match self.load_nghi_bu_map(filter.as_ref()) {
+                Ok(m) => m,
+                Err(e) => { msg_box("Lỗi", &e, true); return; }
+            }
+        };
+        if map.is_empty() { msg_box("Thông báo", "Không tìm thấy dữ liệu số dư nghỉ bù tương ứng!", true); return; }
+        let Some(path) = save_excel_file(&format!("Ket_Qua_So_Du_Nghi_Bu_{}.xlsx", Local::now().format("%d_%m_%Y"))) else { return };
+
+        let mut wb = Workbook::new();
+        let ws = wb.add_worksheet();
+        let _ = ws.set_name("Tổng Hợp Số Dư Nghỉ Bù");
+        let (fmt_h, fmt_n, _) = excel_formats();
+        let fmt_ok = Format::new().set_bold().set_border(FormatBorder::Thin).set_background_color(Color::RGB(0xC6EFCE));
+
+        let headers = ["Mã số nhân viên", "Họ tên", "Tổ chức", "Vị trí", "Tổng số dư", "Tổng số khấu trừ", "Tổng còn lại (Ban đầu)", "Đã dùng chuyển Nghỉ bù", "Số dư còn lại (Sau trừ)", "Đơn vị"];
+        for (c, &h) in headers.iter().enumerate() { let _ = ws.write_string_with_format(0, c as u16, h, &fmt_h); }
+        for (i, it) in map.values().enumerate() {
+            let r = (i + 1) as u32;
+            for (c, s) in [(0, &it.msnv), (1, &it.ho_ten), (2, &it.to_chuc), (3, &it.vi_tri), (9, &it.don_vi)] {
+                let _ = ws.write_string_with_format(r, c, s, &fmt_n);
+            }
+            for (c, v) in [(4, it.tong_so_du), (5, it.tong_khau_tru), (6, it.con_lai_ban_dau), (7, it.da_dung_xin_phep)] {
+                let _ = ws.write_number_with_format(r, c, v, &fmt_n);
+            }
+            let _ = ws.write_number_with_format(r, 8, it.con_lai_sau_tru, if it.con_lai_sau_tru > 0.0 { &fmt_ok } else { &fmt_n });
+        }
+        ws.autofit();
+        save_wb(wb, &path, "Đã xuất file Tổng hợp Số dư Nghỉ bù thành công!");
+    }
+}
+
+// =========================================================================
+// --- HÀM HỖ TRỢ EXCEL & TÍNH KHOẢNG THỜI GIAN ---
+// =========================================================================
+fn excel_formats() -> (Format, Format, Format) {
+    (
+        Format::new().set_bold().set_border(FormatBorder::Thin),
+        Format::new().set_border(FormatBorder::Thin),
+        Format::new().set_border(FormatBorder::Thin).set_background_color(Color::Yellow),
+    )
+}
+
+fn save_wb(mut wb: Workbook, path: &str, msg: &str) {
+    match wb.save(path) {
+        Ok(_) => msg_box("Thành công", msg, false),
+        Err(e) => msg_box("Lỗi", &format!("Lỗi khi lưu file:\n{}", e), true),
+    }
+}
+
+fn inject_excel_dropdown(xlsx_path: &str, max_row: usize) {
+    if max_row < 2 { return; }
+    let safe_path = xlsx_path.replace('\'', "''");
+    run_ps(&format!(
+        "Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem; \
+        $z = [System.IO.Compression.ZipFile]::Open('{safe_path}', 'Update'); \
+        $e = $z.GetEntry('xl/worksheets/sheet1.xml'); \
+        if ($e) {{ \
+            $sr = New-Object System.IO.StreamReader($e.Open(), [System.Text.Encoding]::UTF8); \
+            $xml = $sr.ReadToEnd(); $sr.Close(); \
+            $dv = '<dataValidations count=\"1\"><dataValidation type=\"list\" allowBlank=\"1\" showInputMessage=\"1\" showErrorMessage=\"1\" sqref=\"C2:C{max_row} F2:F{max_row}\"><formula1>\"{LEAVE_TYPES_CSV}\"</formula1></dataValidation></dataValidations>'; \
+            $xml = $xml.Replace('</sheetData>', '</sheetData>' + $dv); \
+            $e.Delete(); \
+            $ne = $z.CreateEntry('xl/worksheets/sheet1.xml'); \
+            $sw = New-Object System.IO.StreamWriter($ne.Open(), (New-Object System.Text.UTF8Encoding($false))); \
+            $sw.Write($xml); $sw.Close(); \
+        }} \
+        $z.Dispose()"
+    ));
+}
+
+fn overlap_secs(a: NaiveDateTime, b: NaiveDateTime, c: NaiveDateTime, d: NaiveDateTime) -> i64 {
+    (b.min(d) - a.max(c)).num_seconds().max(0)
+}
+
+fn fmt_hm_sec(sec: i64, zero_show: bool) -> String {
+    if sec > 0 || zero_show { format!("{:02}:{:02}", sec / 3600, (sec % 3600) / 60) } else { String::new() }
+}
+
+fn calc_leave_mins(start_str: &str, end_str: &str, has_lunch: bool) -> Option<i64> {
+    let st = NaiveDateTime::parse_from_str(start_str.trim(), "%Y-%m-%d %H:%M").ok()?;
+    let end = NaiveDateTime::parse_from_str(end_str.trim(), "%Y-%m-%d %H:%M").ok()?;
+    if end <= st { return None; }
+    let mut mins = (end - st).num_minutes();
+    if has_lunch {
+        let (ls, le) = (st.date().and_hms_opt(11, 30, 0)?, st.date().and_hms_opt(13, 0, 0)?);
+        mins -= overlap_secs(st, end, ls, le) / 60;
+    }
+    (mins > 0).then_some(mins)
+}
+
+fn split_leave_interval(start_str: &str, end_str: &str, nb_mins: i64, has_lunch: bool) -> Option<((String, String), (String, String))> {
+    let st = NaiveDateTime::parse_from_str(start_str.trim(), "%Y-%m-%d %H:%M").ok()?;
+    let end = NaiveDateTime::parse_from_str(end_str.trim(), "%Y-%m-%d %H:%M").ok()?;
+    if end <= st || nb_mins <= 0 { return None; }
+
+    let fmt = "%Y-%m-%d %H:%M";
+    let (ls, le) = (st.date().and_hms_opt(11, 30, 0)?, st.date().and_hms_opt(13, 0, 0)?);
+    if !has_lunch || end <= ls || st >= le {
+        let mid = st + Duration::minutes(nb_mins);
+        return Some(((st.format(fmt).to_string(), mid.format(fmt).to_string()), (mid.format(fmt).to_string(), end.format(fmt).to_string())));
+    }
+
+    let morning_m = (ls - st).num_minutes();
+    let (r1_e, r2_s) = if nb_mins < morning_m {
+        let m = st + Duration::minutes(nb_mins);
+        (m, m)
+    } else if nb_mins == morning_m {
+        (ls, le)
+    } else {
+        let m = le + Duration::minutes(nb_mins - morning_m);
+        (m, m)
+    };
+    Some(((st.format(fmt).to_string(), r1_e.format(fmt).to_string()), (r2_s.format(fmt).to_string(), end.format(fmt).to_string())))
+}
+
+// =========================================================================
+// --- BỘ ĐỌC UNIVERSAL ZKT PARSER (BIFF2-5 RAW, EXCEL, HTML, CSV) ---
+// =========================================================================
+fn read_file_to_dicts(path: &str) -> Result<Vec<HashMap<String, String>>, String> {
+    let raw = fs::read(path).map_err(|e| format!("Không thể đọc file: {}", e))?;
+    if raw.is_empty() { return Ok(Vec::new()); }
+
+    if raw.len() > 8 && raw[0] == 0x09 && matches!(raw[1], 0x08 | 0x00 | 0x02 | 0x04) {
+        let rows = parse_raw_biff_stream(&raw);
+        if rows.len() > 1 { return Ok(convert_matrix_to_dicts(rows)); }
+    }
+    if raw.len() > 4 && (&raw[0..4] == b"PK\x03\x04" || &raw[0..4] == b"\xD0\xCF\x11\xE0") {
+        if let Ok(mut wb) = calamine::open_workbook_auto(path) {
+            let names = wb.sheet_names().to_owned();
+            if !names.is_empty() {
+                let sheet = names.iter().find(|s| *s == "Dữ liệu chấm công").unwrap_or(&names[0]);
+                if let Ok(range) = wb.worksheet_range(sheet) {
+                    let matrix = range.rows().map(|r| r.iter().map(format_calamine_cell).collect()).collect();
+                    return Ok(convert_matrix_to_dicts(matrix));
+                }
+            }
+        }
+    }
+
+    let decoded = decode_zkt_bytes(&raw);
+    if decoded.trim().is_empty() { return Err("Không thể giải mã nội dung file.".into()); }
+
+    if decoded.to_lowercase().contains("<table") {
+        let (tr_re, td_re, tag_re) = (Regex::new(r"(?is)<tr[^>]*>(.*?)</tr>").unwrap(), Regex::new(r"(?is)<t[dh][^>]*>(.*?)</t[dh]>").unwrap(), Regex::new(r"<[^>]+>").unwrap());
+        let html_rows: Vec<Vec<String>> = tr_re.captures_iter(&decoded)
+            .map(|tr| td_re.captures_iter(&tr[1]).map(|td| tag_re.replace_all(&td[1], "").replace("&nbsp;", " ").trim().to_string()).collect::<Vec<_>>())
+            .filter(|cols| cols.iter().any(|c| !c.is_empty())).collect();
+        if html_rows.len() > 1 { return Ok(convert_matrix_to_dicts(html_rows)); }
+    }
+
+    let lines: Vec<&str> = decoded.lines().filter(|l| !l.trim().is_empty()).collect();
+    let start_idx = lines.iter().position(|l| ["AC-No.", "Mã số nhân viên", "MSNV", "Emp No.", "Bất thường chấm công"].iter().any(|k| l.contains(k))).unwrap_or(0);
+    let valid = &lines[start_idx..];
+
+    let mut best: Option<(f64, Vec<Vec<String>>)> = None;
+    for sep in ['\t', ',', ';'] {
+        let parsed: Vec<Vec<String>> = valid.iter().map(|l| parse_csv_line(l, sep)).filter(|r| r.iter().any(|c| !c.is_empty())).collect();
+        if !parsed.is_empty() {
+            let avg = parsed.iter().map(|r| r.len()).sum::<usize>() as f64 / parsed.len() as f64;
+            if best.as_ref().map_or(true, |(m, _)| avg > *m) { best = Some((avg, parsed)); }
+        }
+    }
+    if let Some((avg, m)) = best {
+        if avg >= 2.0 { return Ok(convert_matrix_to_dicts(m)); }
+    }
+    Err("Định dạng file không hợp lệ hoặc không tìm thấy bảng dữ liệu.".into())
+}
+
+fn parse_raw_biff_stream(data: &[u8]) -> Vec<Vec<String>> {
+    let (mut cells, mut max_r, mut max_c, mut pos) = (BTreeMap::new(), 0, 0, 0);
+    while pos + 4 <= data.len() {
+        let (rec_id, len) = (u16::from_le_bytes([data[pos], data[pos + 1]]), u16::from_le_bytes([data[pos + 2], data[pos + 3]]) as usize);
+        let d = pos + 4;
+        if d + len > data.len() || rec_id == 0x000A { break; }
+
+        if (rec_id == 0x0004 || rec_id == 0x0204) && len >= 8 {
+            let (r, c) = (u16::from_le_bytes([data[d], data[d + 1]]) as usize, u16::from_le_bytes([data[d + 2], data[d + 3]]) as usize);
+            let s_len = if rec_id == 0x0004 { data[d + 7] as usize } else { u16::from_le_bytes([data[d + 6], data[d + 7]]) as usize }.min(len - 8);
+            let slice = &data[d + 8..d + 8 + s_len];
+            let txt = std::str::from_utf8(slice).map(|s| s.trim().to_string()).unwrap_or_else(|_| encoding_rs::WINDOWS_1258.decode(slice).0.trim().to_string());
+            cells.insert((r, c), txt); max_r = max_r.max(r); max_c = max_c.max(c);
+        } else if rec_id == 0x0002 && len >= 9 {
+            let (r, c) = (u16::from_le_bytes([data[d], data[d + 1]]) as usize, u16::from_le_bytes([data[d + 2], data[d + 3]]) as usize);
+            cells.insert((r, c), u16::from_le_bytes([data[d + 7], data[d + 8]]).to_string()); max_r = max_r.max(r); max_c = max_c.max(c);
+        } else if rec_id == 0x0003 && len >= 15 {
+            let (r, c) = (u16::from_le_bytes([data[d], data[d + 1]]) as usize, u16::from_le_bytes([data[d + 2], data[d + 3]]) as usize);
+            let mut b = [0u8; 8]; b.copy_from_slice(&data[d + 7..d + 15]);
+            cells.insert((r, c), format_num_clean(f64::from_le_bytes(b))); max_r = max_r.max(r); max_c = max_c.max(c);
+        }
+        pos += 4 + len;
+    }
+    if cells.is_empty() { Vec::new() } else { (0..=max_r).map(|r| (0..=max_c).map(|c| cells.get(&(r, c)).cloned().unwrap_or_default()).collect()).collect() }
+}
+
+fn format_calamine_cell(cell: &Data) -> String {
+    match cell {
+        Data::Empty | Data::Error(_) => String::new(),
+        Data::String(s) | Data::DateTimeIso(s) | Data::DurationIso(s) => s.trim().to_string(),
+        Data::Int(i) => i.to_string(),
+        Data::Float(f) => format_num_clean(*f),
+        Data::Bool(b) => b.to_string(),
+        Data::DateTime(dt) => {
+            let s = dt.as_f64();
+            let (days, secs) = (s.floor() as i64, ((s - s.floor()) * 86400.0).round() as i64);
+            let ndt = NaiveDate::from_ymd_opt(1899, 12, 30).unwrap().and_hms_opt(0, 0, 0).unwrap() + Duration::days(days) + Duration::seconds(secs);
+            if days <= 1 { ndt.format("%H:%M").to_string() } else if secs == 0 { ndt.format("%Y-%m-%d").to_string() } else { ndt.format("%Y-%m-%d %H:%M").to_string() }
+        }
+    }
+}
+
+fn decode_zkt_bytes(raw: &[u8]) -> String {
+    let s = if raw.len() >= 2 && raw[0] == 0xFF && raw[1] == 0xFE { encoding_rs::UTF_16LE.decode(&raw[2..]).0.into_owned() }
+        else if raw.len() >= 2 && raw[0] == 0xFE && raw[1] == 0xFF { encoding_rs::UTF_16BE.decode(&raw[2..]).0.into_owned() }
+        else if let Ok(utf8) = std::str::from_utf8(raw) { utf8.to_string() }
+        else { encoding_rs::WINDOWS_1258.decode(raw).0.into_owned() };
+    s.chars().filter(|&c| c != '\0' && (!c.is_control() || matches!(c, '\r' | '\n' | '\t'))).collect()
+}
+
+fn parse_csv_line(line: &str, sep: char) -> Vec<String> {
+    let (mut res, mut cur, mut in_q) = (Vec::new(), String::new(), false);
+    for c in line.chars() {
+        if c == '"' { in_q = !in_q; }
+        else if c == sep && !in_q { res.push(cur.trim().to_string()); cur.clear(); }
+        else { cur.push(c); }
+    }
+    res.push(cur.trim().to_string());
+    res
+}
+
+fn convert_matrix_to_dicts(rows: Vec<Vec<String>>) -> Vec<HashMap<String, String>> {
+    if rows.is_empty() { return Vec::new(); }
+    let h_idx = rows.iter().take(10).position(|r| {
+        let j = r.join(" ");
+        ["AC-No.", "Mã số nhân viên", "MSNV", "Emp No.", "Bất thường chấm công"].iter().any(|k| j.contains(k))
+    }).unwrap_or(0);
+    let headers: Vec<String> = rows[h_idx].iter().enumerate().map(|(i, h)| if h.trim().is_empty() { format!("Col_{}", i) } else { h.trim().to_string() }).collect();
+    rows.into_iter().skip(h_idx + 1).filter(|r| !r.iter().all(|c| c.trim().is_empty())).map(|row| {
+        headers.iter().enumerate().map(|(c, h)| {
+            let v = row.get(c).cloned().unwrap_or_default().trim().to_string();
+            (h.clone(), if matches!(v.as_str(), "nan" | "NaT" | "None") { String::new() } else { v })
+        }).collect()
+    }).collect()
+}
+
+// =========================================================================
+// --- CÁC HÀM TIỆN ÍCH THỜI GIAN & HỘP THOẠI ---
+// =========================================================================
+fn get_val<'a>(map: &'a HashMap<String, String>, key: &str) -> &'a str {
+    map.get(key).map(|s| s.as_str()).unwrap_or("")
+}
+fn parse_f64(s: &str) -> f64 { s.trim().replace(',', ".").parse::<f64>().unwrap_or(0.0) }
+fn clean_shift_spaces(s: &str) -> String { Regex::new(r"\s+\(").unwrap().replace_all(s.trim(), " (").to_string() }
+
+fn normalize_msnv(raw: &str) -> String {
+    let s = raw.trim().to_uppercase();
+    if s.is_empty() { return String::new(); }
+    if let Some(st) = s.strip_prefix('S') { return format!("S{:0>6}", st.trim()); }
+    if s.len() >= 8 && (s.starts_with("99") || s.starts_with("88")) { return format!("S{}", &s[2..]); }
+    format!("S{:0>6}", s)
+}
+
+fn normalize_time_str(t: &str) -> String {
+    let up = t.trim().to_uppercase();
+    if up.is_empty() { return String::new(); }
+    if let Some(c) = Regex::new(r"(\d{1,2})[H:](\d{2})").unwrap().captures(&up) {
+        if let (Ok(mut h), Ok(m)) = (c[1].parse::<u32>(), c[2].parse::<u32>()) {
+            if (up.contains("PM") || up.contains("CH")) && h < 12 { h += 12; }
+            if (up.contains("AM") || up.contains("SA")) && h == 12 { h = 0; }
+            return format!("{:02}:{:02}", h, m);
+        }
+    }
+    t.trim().to_string()
+}
+
+fn parse_hm(s: &str) -> Option<NaiveTime> { NaiveTime::parse_from_str(&normalize_time_str(s), "%H:%M").ok() }
+
+fn min_dist_seconds(t1: NaiveTime, t2: NaiveTime) -> i64 {
+    let d0 = NaiveDate::from_ymd_opt(2000, 1, 2).unwrap();
+    let (dt1, dt2) = (d0.and_time(t1), d0.and_time(t2));
+    (dt1 - dt2).num_seconds().abs().min(((dt1 + Duration::days(1)) - dt2).num_seconds().abs()).min(((dt1 - Duration::days(1)) - dt2).num_seconds().abs())
+}
+
+fn classify_shift(tt: &str, on_d: &str, off_d: &str) -> (bool, bool, bool, bool) {
+    let is_hc = ["HC", "HÀNH CHÍNH", "HANH CHINH", "7H30-17"].iter().any(|k| tt.contains(k));
+    let is_ca1 = ["CA 1", "CA1", "SÁNG", "SANG"].iter().any(|k| tt.contains(k));
+    let is_ca2 = ["CA 2", "CA2", "TRƯA", "TRUA", "CHIỀU", "CHIEU"].iter().any(|k| tt.contains(k));
+    let is_ca3 = ["CA 3", "CA3", "ĐÊM", "DEM"].iter().any(|k| tt.contains(k))
+        || parse_hm(on_d).zip(parse_hm(off_d)).map_or(false, |(on_t, off_t)| off_t <= on_t);
+    (is_hc, is_ca1, is_ca2, is_ca3)
+}
+
+fn ceil30(dt: NaiveDateTime) -> NaiveDateTime {
+    match dt.minute() {
+        0 => dt.with_second(0).unwrap(),
+        1..=30 => dt.with_minute(30).unwrap().with_second(0).unwrap(),
+        _ => (dt + Duration::hours(1)).with_minute(0).unwrap().with_second(0).unwrap(),
+    }
+}
+fn floor30(dt: NaiveDateTime) -> NaiveDateTime {
+    dt.with_minute(if dt.minute() < 30 { 0 } else { 30 }).unwrap().with_second(0).unwrap()
+}
+
+fn parse_date_only_flexible(input: &str) -> Option<NaiveDate> {
+    let d_part = input.trim().split_whitespace().next()?;
+    let sep = if d_part.contains('/') { '/' } else if d_part.contains('-') { '-' } else { return None };
+    let p: Vec<&str> = d_part.split(sep).collect();
+    if p.len() != 3 { return None; }
+    if p[0].len() == 4 {
+        NaiveDate::from_ymd_opt(p[0].parse().ok()?, p[1].parse().ok()?, p[2].parse().ok()?)
+    } else {
+        let (mut m, mut d, y): (u32, u32, i32) = (p[0].parse().ok()?, p[1].parse().ok()?, p[2].parse().ok()?);
+        if m > 12 { std::mem::swap(&mut m, &mut d); }
+        NaiveDate::from_ymd_opt(y, m, d)
+    }
+}
+
+fn parse_datetime_flexible(input: &str) -> Option<NaiveDateTime> {
+    let p: Vec<&str> = input.trim().split_whitespace().collect();
+    (p.len() >= 2).then(|| parse_date_only_flexible(p[0]).zip(parse_hm(&p[1..].join(" "))))?.map(|(d, t)| d.and_time(t))
+}
+
+fn convert_to_dmy(s: &str) -> String {
+    parse_date_only_flexible(s).map(|d| d.format("%d/%m/%Y").to_string()).unwrap_or_else(|| s.trim().to_string())
+}
+fn format_num_clean(v: f64) -> String {
+    if (v - v.round()).abs() < 1e-6 { format!("{}", v.round() as i64) } else { format!("{}", (v * 100.0).round() / 100.0) }
+}
+fn file_name_only(path: &str) -> String { Path::new(path).file_name().and_then(|n| n.to_str()).unwrap_or(path).to_string() }
+fn pick_excel_file() -> Option<String> {
+    rfd::FileDialog::new().add_filter("Excel & CSV Files", &["xlsx", "xls", "csv"]).pick_file().map(|p| p.to_string_lossy().into_owned())
+}
+fn save_excel_file(def_name: &str) -> Option<String> {
+    rfd::FileDialog::new().set_file_name(def_name).add_filter("Excel Files", &["xlsx"]).save_file().map(|p| p.to_string_lossy().into_owned())
+}
+fn msg_box(title: &str, desc: &str, is_err: bool) {
+    rfd::MessageDialog::new().set_title(title).set_description(desc).set_level(if is_err { rfd::MessageLevel::Error } else { rfd::MessageLevel::Info }).show();
+}
