@@ -1,85 +1,35 @@
-name: Tự động Build theo tên File
+name: Build Rust App to Single EXE
 
 on:
   workflow_dispatch:
     inputs:
-      app_file:
-        description: '1. Gõ tên file Python cần build (VD: app.py)'
+      app_name:
+        description: 'Tên file EXE xuất ra (không cần đuôi .exe)'
         required: true
-        type: string
-        default: 'app.py'
-      exe_name:
-        description: '2. Đặt tên cho file .exe xuất ra (VD: ToolChamCong)'
-        required: true
-        type: string
-        default: 'PhanMemCuaToi'
+        default: 'TimekeepRust'
 
 jobs:
   build:
     runs-on: windows-latest
 
     steps:
-    - name: Tải mã nguồn về máy chủ
+    - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Cài đặt môi trường Python
-      uses: actions/setup-python@v4
-      with: 
-        python-version: '3.11'
+    - name: Install Rust Stable Toolchain
+      uses: dtolnay/rust-toolchain@stable
 
-    - name: AI Quét và cài thư viện tự động
-      shell: bash
+    - name: Cache Cargo Build
+      uses: Swatinem/rust-cache@v2
+
+    - name: Build Release EXE
       run: |
-        python -m pip install --upgrade pip
-        pip install pyinstaller pipreqs pillow
-        
-        mkdir temp_scan
-        cp "${{ inputs.app_file }}" temp_scan/
-        pipreqs temp_scan/ --savepath temp_scan/reqs_auto.txt --force
-        
-        echo "=== THƯ VIỆN ĐƯỢC TỰ ĐỘNG CÀI ĐẶT ==="
-        cat temp_scan/reqs_auto.txt || echo "Không có thư viện ngoài."
-        
-        if [ -s temp_scan/reqs_auto.txt ]; then
-          pip install -r temp_scan/reqs_auto.txt
-        fi
+        cargo build --release
+        New-Item -ItemType Directory -Force -Path publish
+        Copy-Item target\release\timekeep_app.exe "publish\${{ github.event.inputs.app_name }}.exe"
 
-    - name: Đóng gói linh hoạt (Bỏ qua lỗi thiếu file)
-      shell: bash
-      run: |
-        # 1. Khởi tạo lệnh cơ bản
-        BUILD_CMD="pyinstaller --onefile --windowed --name \"${{ inputs.exe_name }}\" \"${{ inputs.app_file }}\""
-        
-        # 2. Kiểm tra file .ico
-        if ls *.ico >/dev/null 2>&1; then
-          BUILD_CMD="$BUILD_CMD --add-data \"*.ico;.\""
-          echo "[+] Đã tìm thấy file .ico, tiến hành tích hợp Icon."
-        else
-          echo "[-] CẢNH BÁO: Không tìm thấy file .ico trên GitHub. Sẽ dùng Icon mặc định."
-        fi
-        
-        # 3. Kiểm tra file .gif
-        if ls *.gif >/dev/null 2>&1; then
-          BUILD_CMD="$BUILD_CMD --add-data \"*.gif;.\""
-          echo "[+] Đã tìm thấy file .gif, tiến hành tích hợp dữ liệu."
-        else
-          echo "[-] CẢNH BÁO: Không tìm thấy file .gif trên GitHub."
-        fi
-        
-        # 4. Kiểm tra file loading.gif cho Splash Screen
-        if [ -f "loading.gif" ]; then
-          BUILD_CMD="$BUILD_CMD --splash \"loading.gif\""
-          echo "[+] Đã tìm thấy loading.gif, tiến hành tạo Native Splash Screen."
-        else
-          echo "[-] CẢNH BÁO: Không tìm thấy loading.gif. Bỏ qua Splash Screen hệ thống."
-        fi
-        
-        # 5. Thực thi lệnh đã được tinh chỉnh
-        echo "LỆNH THỰC THI CUỐI CÙNG: $BUILD_CMD"
-        eval $BUILD_CMD
-
-    - name: Xuất file tải về
+    - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: EXE_${{ inputs.exe_name }}
-        path: dist/${{ inputs.exe_name }}.exe
+        name: ${{ github.event.inputs.app_name }}-Windows-EXE
+        path: ./publish/${{ github.event.inputs.app_name }}.exe
