@@ -1,0 +1,850 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TIMEKEEP</title>
+<style>
+  :root {
+    --bg-main: #f4f6f9;
+    --bg-card: #ffffff;
+    --bg-header: #1e293b;
+    --text-header: #ffffff;
+    --text-main: #1e293b;
+    --text-muted: #64748b;
+    --border: #e2e8f0;
+    --primary: #2563eb;
+    --primary-hover: #1d4ed8;
+    --success: #10b981;
+    --success-hover: #059669;
+    --danger: #ef4444;
+    --warning: #f59e0b;
+    --row-even: #f8fafc;
+    --row-hover: #eff6ff;
+    --bvt-row-bg: #ffedd5;
+    --bvt-row-fg: #9a3412;
+    --hl-cell-bg: #fef08a;
+    --hl-cell-fg: #854d0e;
+    --xp-hl-bg: #fef9c3;
+    --xp-hl-fg: #92400e;
+  }
+
+  [data-theme="Tối"] {
+    --bg-main: #0f172a;
+    --bg-card: #1e293b;
+    --bg-header: #020617;
+    --text-header: #f8fafc;
+    --text-main: #f1f5f9;
+    --text-muted: #94a3b8;
+    --border: #334155;
+    --primary: #3b82f6;
+    --primary-hover: #2563eb;
+    --row-even: #192338;
+    --row-hover: #263554;
+    --bvt-row-bg: rgba(194, 65, 12, 0.35);
+    --bvt-row-fg: #fdba74;
+    --hl-cell-bg: rgba(202, 138, 4, 0.42);
+    --hl-cell-fg: #fef08a;
+    --xp-hl-bg: rgba(180, 83, 9, 0.35);
+    --xp-hl-fg: #fde68a;
+  }
+
+  [data-theme="Neon"] {
+    --bg-main: #050811;
+    --bg-card: #0b1120;
+    --bg-header: #02040a;
+    --text-header: #00ffcc;
+    --text-main: #00ffcc;
+    --text-muted: #38bdf8;
+    --border: #1e293b;
+    --primary: #0284c7;
+    --primary-hover: #0369a1;
+    --row-even: #080d1a;
+    --row-hover: #111c35;
+    --bvt-row-bg: rgba(225, 29, 72, 0.35);
+    --bvt-row-fg: #fda4af;
+    --hl-cell-bg: rgba(234, 179, 8, 0.38);
+    --hl-cell-fg: #fef08a;
+    --xp-hl-bg: rgba(16, 185, 129, 0.25);
+    --xp-hl-fg: #6ee7b7;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg-main);
+    color: var(--text-main);
+    font-size: 13px;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 16px;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    flex-shrink: 0;
+  }
+  .tabs { display: flex; gap: 8px; }
+  .tab-btn {
+    padding: 7px 18px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 13.5px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .tab-btn:hover { background: var(--row-hover); color: var(--text-main); }
+  .tab-btn.active {
+    background: var(--primary);
+    color: #fff;
+    box-shadow: 0 2px 6px rgba(37, 99, 235, 0.25);
+  }
+  .top-actions { display: flex; gap: 8px; align-items: center; }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 6px 13px;
+    border-radius: 7px;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    color: var(--text-main);
+    font-weight: 600;
+    font-size: 12.5px;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .btn:hover { filter: brightness(0.95); }
+  .btn:active { transform: translateY(1px); }
+  .btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .btn-success { background: var(--success); color: #fff; border-color: var(--success); }
+  .btn-warning { background: var(--warning); color: #fff; border-color: var(--warning); }
+  .btn-danger { background: var(--danger); color: #fff; border-color: var(--danger); }
+  .btn-pin-on { background: #fecaca; color: #991b1b; border-color: #f87171; }
+
+  .tab-view {
+    display: none;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    padding: 10px 14px;
+    gap: 10px;
+  }
+  .tab-view.active { display: flex; }
+
+  .control-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    flex-shrink: 0;
+  }
+  .file-group { display: flex; flex-direction: column; gap: 5px; }
+  .file-row { display: flex; align-items: center; gap: 8px; }
+  .file-label { width: 140px; font-weight: 600; color: var(--text-muted); }
+  .file-box {
+    width: 255px;
+    padding: 4px 10px;
+    background: var(--bg-main);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .action-group { display: flex; gap: 8px; align-items: center; }
+  .hints {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+    padding-left: 8px;
+    border-left: 2px solid var(--border);
+  }
+  .hint-red { color: #e11d48; font-style: italic; }
+  .hint-blue { color: var(--primary); font-weight: 600; }
+
+  .filter-bar {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+  .filter-item { display: flex; align-items: center; gap: 6px; position: relative; }
+  .filter-item label { font-weight: 600; color: var(--text-muted); }
+  select.std-select {
+    padding: 5px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg-main);
+    color: var(--text-main);
+    font-weight: 600;
+    font-size: 12.5px;
+    outline: none;
+    cursor: pointer;
+  }
+
+  .multi-dropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    width: 230px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.18);
+    padding: 8px;
+    z-index: 100;
+    display: none;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .multi-dropdown.open { display: flex; }
+  .multi-search {
+    padding: 5px 8px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: var(--bg-main);
+    color: var(--text-main);
+    font-size: 12px;
+  }
+  .multi-actions { display: flex; gap: 6px; }
+  .multi-actions button { flex: 1; font-size: 11px; padding: 3px 6px; }
+  .multi-list {
+    max-height: 200px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    border-top: 1px solid var(--border);
+    padding-top: 5px;
+  }
+  .multi-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 5px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12.5px;
+  }
+  .multi-item:hover { background: var(--row-hover); }
+
+  .table-wrap {
+    flex: 1;
+    min-height: 0;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: auto;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+  }
+  table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 12.5px;
+  }
+  thead th {
+    position: sticky;
+    top: 0;
+    background: var(--bg-header);
+    color: var(--text-header);
+    font-weight: 600;
+    padding: 9px 10px;
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+    border-right: 1px solid rgba(255,255,255,0.08);
+    white-space: nowrap;
+    z-index: 10;
+  }
+  tbody td {
+    padding: 6px 10px;
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    white-space: nowrap;
+    user-select: text;
+  }
+  tbody tr:nth-child(even) { background: var(--row-even); }
+  tbody tr:hover { background: var(--row-hover); }
+
+  tbody tr.row-bvt { background: var(--bvt-row-bg) !important; color: var(--bvt-row-fg); font-weight: 600; }
+  td.cell-hl { background: var(--hl-cell-bg) !important; color: var(--hl-cell-fg) !important; font-weight: 700; }
+  tbody tr.row-xp-hl { background: var(--xp-hl-bg) !important; color: var(--xp-hl-fg); font-weight: 600; }
+
+  select.cell-select {
+    width: 100%;
+    padding: 3px 6px;
+    border-radius: 5px;
+    border: 1px solid var(--primary);
+    background: var(--bg-card);
+    color: var(--text-main);
+    font-weight: 700;
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .bottom-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px 14px;
+    flex-shrink: 0;
+  }
+  .bottom-buttons { display: flex; gap: 12px; }
+  .row-counter { font-weight: 600; color: var(--text-muted); }
+
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.55);
+    backdrop-filter: blur(2px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    width: 390px;
+    padding: 18px 20px;
+    box-shadow: 0 20px 35px rgba(0,0,0,0.25);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .modal-title { font-size: 15px; font-weight: 700; text-align: center; }
+  .shift-grid {
+    display: grid;
+    grid-template-columns: 130px 1fr 18px 1fr;
+    align-items: center;
+    gap: 8px;
+  }
+  .shift-grid input {
+    width: 100%;
+    padding: 5px 8px;
+    text-align: center;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-main);
+    color: var(--text-main);
+    font-weight: 700;
+  }
+</style>
+</head>
+<body data-theme="Sáng">
+
+  <!-- TOP BAR -->
+  <div class="topbar">
+    <div class="tabs">
+      <button class="tab-btn active" id="tabBtnCC" onclick="switchTab('CC')">🕒 Chấm Công</button>
+      <button class="tab-btn" id="tabBtnXP" onclick="switchTab('XP')">📝 Xin Phép & Nghỉ Bù</button>
+    </div>
+    <div class="top-actions">
+      <button class="btn" id="btnTheme" onclick="cycleTheme()">🎨 Giao diện: Sáng</button>
+      <button class="btn" id="btnPin" onclick="sendIPC({cmd:'toggle_pin'})">📌 Ghim: TẮT</button>
+    </div>
+  </div>
+
+  <!-- ==================== TAB 1: CHẤM CÔNG ==================== -->
+  <div class="tab-view active" id="viewCC">
+    <div class="control-card">
+      <div class="file-group">
+        <div class="file-row">
+          <span class="file-label">1. File zkt:</span>
+          <div class="file-box" id="lblFile1">Chưa chọn file</div>
+          <button class="btn" onclick="sendIPC({cmd:'pick_file', target:'f1'})">Chọn File</button>
+        </div>
+        <div class="file-row">
+          <span class="file-label">2. Dữ liệu HR:</span>
+          <div class="file-box" id="lblFile2">Chưa chọn file</div>
+          <button class="btn" onclick="sendIPC({cmd:'pick_file', target:'f2'})">Chọn File</button>
+        </div>
+      </div>
+
+      <div class="action-group">
+        <button class="btn btn-primary" style="padding: 12px 18px; font-size: 13.5px;" onclick="sendIPC({cmd:'process_cc'})">▶ Bắt đầu Xử lý</button>
+        <button class="btn" style="padding: 12px 14px;" onclick="openSettingsModal()">⚙ Cài đặt ca</button>
+      </div>
+
+      <div class="hints">
+        <span class="hint-red">💡 MẸO: Chọn trực tiếp tên Ca ở cột Timetable để đổi ca và tính lại công tức thì.</span>
+        <span class="hint-blue">⚡ HỆ THỐNG: Tự động đọc file .xls BIFF2 giả mạo, bù vân tay Ca Đêm & tô màu cảnh báo.</span>
+      </div>
+    </div>
+
+    <div class="filter-bar">
+      <div class="filter-item">
+        <label>Ngày:</label>
+        <button class="btn" id="btnFilterDate" onclick="toggleDropdown('ddDate', event)">Tất cả Ngày ▾</button>
+        <div class="multi-dropdown" id="ddDate" onclick="event.stopPropagation()">
+          <input type="text" class="multi-search" id="searchDate" placeholder="Tìm ngày..." oninput="renderMultiList('date')">
+          <div class="multi-actions">
+            <button class="btn" onclick="selectAllMulti('date', true)">Chọn tất cả</button>
+            <button class="btn" onclick="selectAllMulti('date', false)">Bỏ chọn</button>
+          </div>
+          <div class="multi-list" id="listDate"></div>
+        </div>
+      </div>
+
+      <div class="filter-item">
+        <label>MSNV:</label>
+        <button class="btn" id="btnFilterMsnv" onclick="toggleDropdown('ddMsnv', event)">Tất cả MSNV ▾</button>
+        <div class="multi-dropdown" id="ddMsnv" onclick="event.stopPropagation()">
+          <input type="text" class="multi-search" id="searchMsnv" placeholder="Tìm MSNV..." oninput="renderMultiList('msnv')">
+          <div class="multi-actions">
+            <button class="btn" onclick="selectAllMulti('msnv', true)">Chọn tất cả</button>
+            <button class="btn" onclick="selectAllMulti('msnv', false)">Bỏ chọn</button>
+          </div>
+          <div class="multi-list" id="listMsnv"></div>
+        </div>
+      </div>
+
+      <div class="filter-item">
+        <label>Ca làm:</label>
+        <select class="std-select" id="selTimetable" onchange="renderTableCC()">
+          <option value="Tất cả">Tất cả</option>
+        </select>
+      </div>
+
+      <div class="filter-item">
+        <label>Work Time:</label>
+        <select class="std-select" id="selWorkTime" onchange="renderTableCC()">
+          <option value="Tất cả">Tất cả</option>
+          <option value="Bù vân tay">Bù vân tay</option>
+        </select>
+      </div>
+
+      <button class="btn btn-warning" onclick="resetFiltersCC()">↻ Xóa Lọc / Tải Lại</button>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr id="theadCC"></tr>
+        </thead>
+        <tbody id="tbodyCC"></tbody>
+      </table>
+    </div>
+
+    <div class="bottom-bar">
+      <div class="bottom-buttons">
+        <button class="btn btn-success" style="padding: 8px 18px; font-size: 13px;" onclick="sendIPC({cmd:'export_cc'})">📥 Xuất Bảng Dữ Liệu</button>
+        <button class="btn btn-danger" style="padding: 8px 18px; font-size: 13px;" onclick="sendIPC({cmd:'export_fixed'})">📊 Xuất Theo Form Cố Định</button>
+      </div>
+      <div class="row-counter" id="lblCountCC">Hiển thị: 0 dòng</div>
+    </div>
+  </div>
+
+  <!-- ==================== TAB 2: XIN PHÉP ==================== -->
+  <div class="tab-view" id="viewXP">
+    <div class="control-card">
+      <div class="file-group">
+        <div class="file-row">
+          <span class="file-label">1. Dữ liệu đầu vào:</span>
+          <div class="file-box" id="lblFileXp">Chưa chọn file</div>
+          <button class="btn" onclick="sendIPC({cmd:'pick_file', target:'fxp'})">Chọn File</button>
+        </div>
+        <div class="file-row">
+          <span class="file-label">2. File số dư nghỉ bù:</span>
+          <div class="file-box" id="lblFileNb">Chưa chọn file (Tùy chọn)</div>
+          <button class="btn" onclick="sendIPC({cmd:'pick_file', target:'fnb'})">Chọn File</button>
+          <button class="btn btn-danger" id="btnClearNb" style="display:none; padding: 3px 8px;" onclick="sendIPC({cmd:'clear_nb'})">✖ Bỏ file</button>
+        </div>
+        <div class="file-row">
+          <span class="file-label">3. File phép năm:</span>
+          <div class="file-box" id="lblFilePn">Chưa chọn file (Tùy chọn)</div>
+          <button class="btn" onclick="sendIPC({cmd:'pick_file', target:'fpn'})">Chọn File</button>
+          <button class="btn btn-danger" id="btnClearPn" style="display:none; padding: 3px 8px;" onclick="sendIPC({cmd:'clear_pn'})">✖ Bỏ file</button>
+        </div>
+      </div>
+
+      <div class="action-group">
+        <button class="btn btn-primary" style="padding: 12px 16px;" onclick="sendIPC({cmd:'process_xp'})">▶ Xử lý dữ liệu</button>
+        <button class="btn btn-success" style="padding: 12px 16px;" onclick="sendIPC({cmd:'export_xp'})">📥 Xuất kết quả</button>
+        <button class="btn btn-warning" style="padding: 12px 16px;" onclick="sendIPC({cmd:'export_nb'})">📊 Xuất Số Dư Nghỉ Bù</button>
+        <button class="btn" style="padding: 12px 14px;" onclick="openSettingsModal()">⚙ Cài đặt ca</button>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr id="theadXP"></tr>
+        </thead>
+        <tbody id="tbodyXP"></tbody>
+      </table>
+    </div>
+
+    <div class="bottom-bar">
+      <span class="hint-blue">💡 Hệ thống tự động quy đổi Phép năm (1 ngày = 8H) và Nghỉ bù, trừ lùi từ trên xuống cho từng MSNV. Các dòng có Dropdown cho phép bạn đổi linh hoạt giữa các phương án.</span>
+      <div class="row-counter" id="lblCountXP">Tổng cộng: 0 dòng</div>
+    </div>
+  </div>
+
+  <!-- MODAL CÀI ĐẶT GIỜ CA -->
+  <div class="modal-backdrop" id="settingsModal">
+    <div class="modal-card">
+      <div class="modal-title">⚙ Cài đặt giờ ca (Chuẩn 24h)</div>
+      <div class="shift-grid">
+        <span>Hành chính (HC):</span>
+        <input type="text" id="inpHcS" value="07:30">
+        <span style="text-align:center">-</span>
+        <input type="text" id="inpHcE" value="17:00">
+
+        <span>Ca 1 (Sáng):</span>
+        <input type="text" id="inpCa1S" value="07:00">
+        <span style="text-align:center">-</span>
+        <input type="text" id="inpCa1E" value="15:00">
+
+        <span>Ca 2 (Chiều):</span>
+        <input type="text" id="inpCa2S" value="15:00">
+        <span style="text-align:center">-</span>
+        <input type="text" id="inpCa2E" value="23:00">
+
+        <span>Ca 3 (Đêm):</span>
+        <input type="text" id="inpCa3S" value="23:00">
+        <span style="text-align:center">-</span>
+        <input type="text" id="inpCa3E" value="07:00">
+      </div>
+      <button class="btn" onclick="loadOldShiftPreset()">↺ Dùng form giờ cũ (06h-14h, 14h-22h, 22h-06h)</button>
+      <div style="display:flex; gap:10px; justify-content:center; margin-top:4px;">
+        <button class="btn btn-primary" style="flex:1" onclick="applySettings()">✔ Áp dụng</button>
+        <button class="btn btn-danger" style="flex:1" onclick="closeSettingsModal()">✖ Đóng</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const CC_COLS = ["MSNV", "Name", "Date", "Timetable", "On duty", "Off duty", "Clock In", "Clock Out", "Late", "Early", "OT Time", "Work Time", "Kết Quả Công", "Nghỉ phép", "Tăng ca"];
+  const XP_COLS = ["MSNV", "Ngày", "*Loại hình xin phép", "*Thời gian bắt đầu xin phép", "*Thời gian kết thúc xin phép", "Lý do nghỉ phép"];
+
+  let appState = {
+    theme: "Sáng",
+    is_pinned: false,
+    file1: "", file2: "", file_xp: "", file_nb: "", file_pn: "",
+    shift_settings: { hc_start:"07:30", hc_end:"17:00", ca1_start:"07:00", ca1_end:"15:00", ca2_start:"15:00", ca2_end:"23:00", ca3_start:"23:00", ca3_end:"07:00" },
+    all_dates: [], all_msnvs: [], all_timetables: [],
+    cc_rows: [], xp_rows: []
+  };
+
+  let selectedDates = new Set();
+  let selectedMsnvs = new Set();
+
+  document.getElementById('theadCC').innerHTML = CC_COLS.map(c => `<th>${c}</th>`).join('');
+  document.getElementById('theadXP').innerHTML = XP_COLS.map(c => `<th>${c}</th>`).join('');
+
+  function sendIPC(payload) {
+    if (window.ipc) window.ipc.postMessage(JSON.stringify(payload));
+  }
+
+  function switchTab(tab) {
+    document.getElementById('tabBtnCC').classList.toggle('active', tab === 'CC');
+    document.getElementById('tabBtnXP').classList.toggle('active', tab === 'XP');
+    document.getElementById('viewCC').classList.toggle('active', tab === 'CC');
+    document.getElementById('viewXP').classList.toggle('active', tab === 'XP');
+  }
+
+  function cycleTheme() {
+    const order = ["Sáng", "Tối", "Neon"];
+    appState.theme = order[(order.indexOf(appState.theme) + 1) % order.length];
+    document.body.setAttribute('data-theme', appState.theme);
+    document.getElementById('btnTheme').textContent = `🎨 Giao diện: ${appState.theme}`;
+  }
+
+  window.addEventListener('click', () => {
+    document.getElementById('ddDate').classList.remove('open');
+    document.getElementById('ddMsnv').classList.remove('open');
+  });
+
+  function toggleDropdown(id, ev) {
+    ev.stopPropagation();
+    const other = id === 'ddDate' ? 'ddMsnv' : 'ddDate';
+    document.getElementById(other).classList.remove('open');
+    document.getElementById(id).classList.toggle('open');
+  }
+
+  function escHtml(str) {
+    return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  window.updateFromRust = function(state, resetFilter) {
+    appState = state;
+    document.getElementById('lblFile1').textContent = state.file1 || 'Chưa chọn file';
+    document.getElementById('lblFile2').textContent = state.file2 || 'Chưa chọn file';
+    document.getElementById('lblFileXp').textContent = state.file_xp || 'Chưa chọn file';
+    document.getElementById('lblFileNb').textContent = state.file_nb || 'Chưa chọn file (Tùy chọn)';
+    document.getElementById('lblFilePn').textContent = state.file_pn || 'Chưa chọn file (Tùy chọn)';
+    document.getElementById('btnClearNb').style.display = state.file_nb ? 'inline-flex' : 'none';
+    document.getElementById('btnClearPn').style.display = state.file_pn ? 'inline-flex' : 'none';
+
+    const btnPin = document.getElementById('btnPin');
+    btnPin.textContent = state.is_pinned ? '📌 Ghim: BẬT' : '📌 Ghim: TẮT';
+    btnPin.classList.toggle('btn-pin-on', state.is_pinned);
+
+    const selTT = document.getElementById('selTimetable');
+    const prevTT = selTT.value;
+    selTT.innerHTML = `<option value="Tất cả">Tất cả</option>` +
+      state.all_timetables.map(t => `<option value="${escHtml(t)}">${escHtml(t)}</option>`).join('');
+    if (!resetFilter && state.all_timetables.includes(prevTT)) selTT.value = prevTT;
+
+    if (resetFilter) {
+      selectedDates.clear();
+      selectedMsnvs.clear();
+      document.getElementById('selWorkTime').value = 'Tất cả';
+    }
+
+    renderMultiList('date');
+    renderMultiList('msnv');
+    updateMultiBtnLabel('date');
+    updateMultiBtnLabel('msnv');
+    renderTableCC();
+    renderTableXP();
+  };
+
+  function renderMultiList(kind) {
+    const isDate = kind === 'date';
+    const allItems = isDate ? appState.all_dates : appState.all_msnvs;
+    const selSet = isDate ? selectedDates : selectedMsnvs;
+    const kw = document.getElementById(isDate ? 'searchDate' : 'searchMsnv').value.toLowerCase();
+    const container = document.getElementById(isDate ? 'listDate' : 'listMsnv');
+
+    container.innerHTML = allItems
+      .filter(it => !kw || it.toLowerCase().includes(kw))
+      .map(it => {
+        const chk = selSet.has(it) ? 'checked' : '';
+        return `<label class="multi-item"><input type="checkbox" ${chk} onchange="toggleMultiItem('${kind}', '${escHtml(it)}', this.checked)"> <span>${escHtml(it)}</span></label>`;
+      }).join('');
+  }
+
+  function toggleMultiItem(kind, val, checked) {
+    const set = kind === 'date' ? selectedDates : selectedMsnvs;
+    if (checked) set.add(val); else set.delete(val);
+    updateMultiBtnLabel(kind);
+    renderTableCC();
+  }
+
+  function selectAllMulti(kind, selectAll) {
+    const isDate = kind === 'date';
+    const allItems = isDate ? appState.all_dates : appState.all_msnvs;
+    const set = isDate ? selectedDates : selectedMsnvs;
+    const kw = document.getElementById(isDate ? 'searchDate' : 'searchMsnv').value.toLowerCase();
+    if (!selectAll) {
+      set.clear();
+    } else {
+      allItems.filter(it => !kw || it.toLowerCase().includes(kw)).forEach(it => set.add(it));
+    }
+    renderMultiList(kind);
+    updateMultiBtnLabel(kind);
+    renderTableCC();
+  }
+
+  function updateMultiBtnLabel(kind) {
+    const isDate = kind === 'date';
+    const allItems = isDate ? appState.all_dates : appState.all_msnvs;
+    const set = isDate ? selectedDates : selectedMsnvs;
+    const btn = document.getElementById(isDate ? 'btnFilterDate' : 'btnFilterMsnv');
+    const defTitle = isDate ? 'Tất cả Ngày' : 'Tất cả MSNV';
+
+    if (set.size === 0 || set.size === allItems.length) btn.textContent = `${defTitle} ▾`;
+    else if (set.size === 1) btn.textContent = `${Array.from(set)[0]} ▾`;
+    else btn.textContent = `Đã chọn ${set.size} mục ▾`;
+  }
+
+  function resetFiltersCC() {
+    selectedDates.clear();
+    selectedMsnvs.clear();
+    document.getElementById('selTimetable').value = 'Tất cả';
+    document.getElementById('selWorkTime').value = 'Tất cả';
+    renderMultiList('date');
+    renderMultiList('msnv');
+    updateMultiBtnLabel('date');
+    updateMultiBtnLabel('msnv');
+    renderTableCC();
+  }
+
+  function renderTableCC() {
+    const ttFilter = document.getElementById('selTimetable').value;
+    const wtFilter = document.getElementById('selWorkTime').value;
+    const shiftOpts = appState.all_timetables.length > 0
+      ? appState.all_timetables
+      : ["HC 7H30-17H00", "CA SANG MOI", "CA TRUA MOI", "CA DEM MOI"];
+
+    let count = 0;
+    const html = [];
+
+    appState.cc_rows.forEach((row, idx) => {
+      if (selectedDates.size > 0 && !selectedDates.has(row["Date"])) return;
+      if (selectedMsnvs.size > 0 && !selectedMsnvs.has(row["MSNV"])) return;
+      if (ttFilter !== "Tất cả" && row["Timetable"] !== ttFilter) return;
+      if (wtFilter === "Bù vân tay" && row["Work Time"] !== "Bù vân tay") return;
+
+      count++;
+      const isBvtRow = ["Work Time", "Clock In", "Clock Out", "Kết Quả Công"].some(k => row[k] === "Bù vân tay");
+      const trClass = isBvtRow ? 'class="row-bvt"' : '';
+
+      const tds = CC_COLS.map(col => {
+        const val = row[col] || "";
+        if (col === "Timetable") {
+          const opts = shiftOpts.map(o => `<option value="${escHtml(o)}" ${o === val ? 'selected' : ''}>${escHtml(o)}</option>`).join('');
+          return `<td><select class="cell-select" onchange="sendIPC({cmd:'change_tt', idx:${idx}, val:this.value})">${opts}</select></td>`;
+        }
+        const isCellHl = val !== "" && (col === "Late" || col === "Early" || (col === "Nghỉ phép" && val !== "PLP"));
+        return `<td ${isCellHl ? 'class="cell-hl"' : ''}>${escHtml(val)}</td>`;
+      }).join('');
+
+      html.push(`<tr ${trClass}>${tds}</tr>`);
+    });
+
+    document.getElementById('tbodyCC').innerHTML = html.join('');
+    document.getElementById('lblCountCC').textContent = `Hiển thị: ${count} / ${appState.cc_rows.length} dòng`;
+  }
+
+  function renderTableXP() {
+    const html = appState.xp_rows.map(row => {
+      const isExtra = row["IsExtra"] === "True";
+      const menuKind = row["MenuKind"] || "";
+      const trClass = (isExtra || (menuKind !== "" && menuKind !== "FOUR_EIGHT")) ? 'class="row-xp-hl"' : '';
+
+      const tds = XP_COLS.map(col => {
+        const val = row[col] || "";
+        if (col === "*Loại hình xin phép" && menuKind !== "") {
+          const baseIdx = parseInt(row["BaseIdx"] || "0", 10);
+          if (menuKind === "UPPER") {
+            const pIdx = parseInt(row["LinkedPartialIdx"] || "0", 10);
+            const isSkip = row["UpperSkipped"] === "True";
+            const canSwap = row["CanSwap"] === "True";
+            const opt3 = row["Opt3Label"] ? `<option value="2" ${row["UsePhepNam"] === "True" ? 'selected' : ''}>${escHtml(row["Opt3Label"])}</option>` : '';
+            const curVal = row["UsePhepNam"] === "True" ? "2" : (isSkip ? "1" : "0");
+            return `<td>
+              <select class="cell-select" onchange="onUpperSelectChange(${baseIdx}, ${pIdx}, this.value, ${canSwap})">
+                <option value="0" ${curVal === "0" ? 'selected' : ''}>${escHtml(row["Opt1Label"])}</option>
+                <option value="1" ${curVal === "1" ? 'selected' : ''}>${escHtml(row["Opt2Label"])}</option>
+                ${opt3}
+              </select>
+            </td>`;
+          } else if (menuKind === "FOUR_EIGHT") {
+            const usePn = row["UsePhepNam"] === "True";
+            return `<td>
+              <select class="cell-select" onchange="onFourEightChange(${baseIdx}, this.value === '1')">
+                <option value="0" ${!usePn ? 'selected' : ''}>${escHtml(row["Opt1Label"])}</option>
+                <option value="1" ${usePn ? 'selected' : ''}>${escHtml(row["Opt2Label"])}</option>
+              </select>
+            </td>`;
+          } else if (menuKind === "PARTIAL") {
+            const mode = parseInt(row["PartialMode"] || "0", 10);
+            const uIdx = row["LinkedUpperIdx"] !== undefined && row["LinkedUpperIdx"] !== "" ? parseInt(row["LinkedUpperIdx"], 10) : null;
+            const opt3 = row["Opt3Label"] ? `<option value="2" ${mode === 2 ? 'selected' : ''}>${escHtml(row["Opt3Label"])}</option>` : '';
+            return `<td>
+              <select class="cell-select" onchange="onPartialSelectChange(${baseIdx}, ${uIdx}, parseInt(this.value, 10))">
+                <option value="0" ${mode === 0 ? 'selected' : ''}>${escHtml(row["Opt1Label"])}</option>
+                <option value="1" ${mode === 1 ? 'selected' : ''}>${escHtml(row["Opt2Label"])}</option>
+                ${opt3}
+              </select>
+            </td>`;
+          }
+        }
+        return `<td>${escHtml(val)}</td>`;
+      }).join('');
+
+      return `<tr ${trClass}>${tds}</tr>`;
+    });
+
+    document.getElementById('tbodyXP').innerHTML = html.join('');
+    document.getElementById('lblCountXP').textContent = `Tổng cộng: ${appState.xp_rows.length} dòng`;
+  }
+
+  function onUpperSelectChange(upperIdx, partialIdx, valStr, canSwap) {
+    if (valStr === "2") {
+      sendIPC({ cmd: 'xp_four_eight_pn', base_idx: upperIdx, use_pn: true });
+    } else {
+      sendIPC({ cmd: 'xp_upper_skip', upper_idx: upperIdx, partial_idx: partialIdx, skip: valStr === "1", can_swap: canSwap });
+    }
+  }
+
+  function onFourEightChange(baseIdx, usePn) {
+    sendIPC({ cmd: 'xp_four_eight_pn', base_idx: baseIdx, use_pn: usePn });
+  }
+
+  function onPartialSelectChange(partialIdx, upperIdx, mode) {
+    sendIPC({ cmd: 'xp_partial_mode', partial_idx: partialIdx, upper_idx: upperIdx, mode: mode });
+  }
+
+  function openSettingsModal() {
+    const s = appState.shift_settings;
+    document.getElementById('inpHcS').value = s.hc_start;
+    document.getElementById('inpHcE').value = s.hc_end;
+    document.getElementById('inpCa1S').value = s.ca1_start;
+    document.getElementById('inpCa1E').value = s.ca1_end;
+    document.getElementById('inpCa2S').value = s.ca2_start;
+    document.getElementById('inpCa2E').value = s.ca2_end;
+    document.getElementById('inpCa3S').value = s.ca3_start;
+    document.getElementById('inpCa3E').value = s.ca3_end;
+    document.getElementById('settingsModal').classList.add('open');
+  }
+
+  function closeSettingsModal() {
+    document.getElementById('settingsModal').classList.remove('open');
+  }
+
+  function loadOldShiftPreset() {
+    document.getElementById('inpHcS').value = "07:30";
+    document.getElementById('inpHcE').value = "17:00";
+    document.getElementById('inpCa1S').value = "06:00";
+    document.getElementById('inpCa1E').value = "14:00";
+    document.getElementById('inpCa2S').value = "14:00";
+    document.getElementById('inpCa2E').value = "22:00";
+    document.getElementById('inpCa3S').value = "22:00";
+    document.getElementById('inpCa3E').value = "06:00";
+  }
+
+  function applySettings() {
+    sendIPC({
+      cmd: 'save_settings',
+      settings: {
+        hc_start: document.getElementById('inpHcS').value,
+        hc_end: document.getElementById('inpHcE').value,
+        ca1_start: document.getElementById('inpCa1S').value,
+        ca1_end: document.getElementById('inpCa1E').value,
+        ca2_start: document.getElementById('inpCa2S').value,
+        ca2_end: document.getElementById('inpCa2E').value,
+        ca3_start: document.getElementById('inpCa3S').value,
+        ca3_end: document.getElementById('inpCa3E').value
+      }
+    });
+    closeSettingsModal();
+  }
+</script>
+</body>
+</html>
