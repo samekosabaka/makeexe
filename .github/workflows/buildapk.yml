@@ -50,6 +50,38 @@ jobs:
         run: |
           export RUSTFLAGS="-C link-arg=-Wl,-z,max-page-size=16384"
           cargo tauri android init --ci
+
+          python3 - << 'EOF'
+          import glob
+          kt = glob.glob("src-tauri/gen/android/app/src/main/java/**/MainActivity.kt", recursive=True)[0]
+          pkg = next(l for l in open(kt) if l.startswith("package ")).strip()
+          code = pkg + """
+
+          import android.os.Bundle
+          import android.view.View
+          import androidx.core.view.ViewCompat
+          import androidx.core.view.WindowInsetsCompat
+
+          class MainActivity : TauriActivity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  val rootView = findViewById<View>(android.R.id.content)
+                  ViewCompat.setOnApplyWindowInsetsListener(rootView) { view, insets ->
+                      val bars = insets.getInsets(
+                          WindowInsetsCompat.Type.systemBars()
+                              or WindowInsetsCompat.Type.displayCutout()
+                              or WindowInsetsCompat.Type.ime()
+                      )
+                      view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+                      WindowInsetsCompat.CONSUMED
+                  }
+                  ViewCompat.requestApplyInsets(rootView)
+              }
+          }
+          """
+          open(kt, "w").write(code)
+          EOF
+
           if [ ! -f src-tauri/icons/32x32.png ]; then
             python3 -c 'import zlib, struct; w=h=512; raw=b"".join(b"\x00"+bytes([37,99,235,255])*w for _ in range(h)); ch=lambda t,d: struct.pack(">I",len(d))+t+d+struct.pack(">I",zlib.crc32(t+d)&0xffffffff); open("app-icon.png","wb").write(b"\x89PNG\r\n\x1a\n"+ch(b"IHDR",struct.pack(">IIBBBBB",w,h,8,6,0,0,0))+ch(b"IDAT",zlib.compress(raw))+ch(b"IEND",b""))'
             cargo tauri icon app-icon.png
