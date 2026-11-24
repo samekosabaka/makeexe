@@ -41,7 +41,7 @@ macro_rules! row_map {
 }
 
 // =========================================================================
-// --- CẤU TRÚC DỮ LIỆU & PAYLOAD GIAO TIẾP TAURI V2 ---
+// --- CẤU TRÚC DỮ LIỆU & PAYLOAD KHỚP 100% VỚI INDEX.HTML ---
 // =========================================================================
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ShiftConfig {
@@ -68,6 +68,12 @@ impl Default for ShiftConfig {
             ca3_end: "07:00".into(),
         }
     }
+}
+
+#[derive(Deserialize)]
+pub struct DeleteTarget {
+    pub base_idx: usize,
+    pub part: u8,
 }
 
 #[derive(Clone, Default)]
@@ -97,6 +103,20 @@ struct BaseXpItem {
     skip_nb: bool,
     user_choice: u8,  // 0 = Tự động, 1 = Phép năm, 2 = Nghỉ bù, 3 = Việc riêng (giữ mọi phép)
     partial_mode: u8, // 0 = TH1 giữ 1 dòng, 1 = TH2 chia 2 dòng, 2 = TH3 đổi dòng trên, 3 = Việc riêng
+    manual_part0: Option<String>,
+    manual_part1: Option<String>,
+    deleted_part0: bool,
+    deleted_part1: bool,
+}
+
+impl BaseXpItem {
+    fn is_fully_deleted(&self) -> bool {
+        if self.partial_mode == 1 {
+            self.deleted_part0 && self.deleted_part1
+        } else {
+            self.deleted_part0
+        }
+    }
 }
 
 #[derive(Clone, Default)]
@@ -109,7 +129,7 @@ struct NaturalRowInfo {
 }
 
 #[derive(Serialize)]
-pub struct UiPayload {
+pub struct UiState {
     pub file1: String,
     pub file2: String,
     pub file_xp: String,
@@ -121,15 +141,19 @@ pub struct UiPayload {
     pub all_timetables: Vec<String>,
     pub cc_rows: Vec<HashMap<String, String>>,
     pub xp_rows: Vec<HashMap<String, String>>,
+}
+
+#[derive(Serialize)]
+pub struct CmdResponse {
+    pub state: UiState,
     pub message: Option<String>,
-    pub reset_filter: bool,
+    pub is_error: bool,
 }
 
 #[derive(Serialize)]
 pub struct ExportPayload {
     pub filename: String,
-    pub base64: String,
-    pub message: String,
+    pub data_base64: String,
 }
 
 #[derive(Default)]
@@ -160,21 +184,23 @@ struct TimekeepApp {
 }
 
 impl TimekeepApp {
-    fn to_payload(&self, message: Option<String>, reset_filter: bool) -> UiPayload {
-        UiPayload {
-            file1: self.file1.name.clone(),
-            file2: self.file2.name.clone(),
-            file_xp: self.file_xp.name.clone(),
-            file_nb: self.file_nb.name.clone(),
-            file_pn: self.file_pn.name.clone(),
-            shift_settings: self.shift_settings.clone(),
-            all_dates: self.all_dates.clone(),
-            all_msnvs: self.all_msnvs.clone(),
-            all_timetables: self.all_timetables.clone(),
-            cc_rows: self.data_result.clone(),
-            xp_rows: self.data_xp_result.clone(),
+    fn to_response(&self, message: Option<String>, is_error: bool) -> CmdResponse {
+        CmdResponse {
+            state: UiState {
+                file1: self.file1.name.clone(),
+                file2: self.file2.name.clone(),
+                file_xp: self.file_xp.name.clone(),
+                file_nb: self.file_nb.name.clone(),
+                file_pn: self.file_pn.name.clone(),
+                shift_settings: self.shift_settings.clone(),
+                all_dates: self.all_dates.clone(),
+                all_msnvs: self.all_msnvs.clone(),
+                all_timetables: self.all_timetables.clone(),
+                cc_rows: self.data_result.clone(),
+                xp_rows: self.data_xp_result.clone(),
+            },
             message,
-            reset_filter,
+            is_error,
         }
     }
 
@@ -664,7 +690,7 @@ impl TimekeepApp {
     }
 
     // =========================================================================
-    // --- LOGIC TAB 2: XIN PHÉP, NGHỈ BÙ & PHÉP NĂM (1 NGÀY = 8H) ---
+    // --- LOGIC TAB 2: XIN PHÉP, NGHỈ BÙ, PHÉP NĂM, CHỌN TAY & XÓA DÒNG ---
     // =========================================================================
     fn load_nghi_bu_map(&self, filter: Option<&HashSet<String>>) -> Result<BTreeMap<String, NghiBuSummary>, String> {
         let mut map = BTreeMap::new();
@@ -800,19 +826,19 @@ impl TimekeepApp {
             };
 
             let Some(base_d) = start_d else {
-                self.base_xp_items.push(BaseXpItem {
-                    msnv, ngay: date_out, orig_loai: "LỖI DỮ LIỆU: KHÔNG ĐỌC ĐƯỢC NGÀY".into(),
-                    start: String::new(), end: String::new(), lydo: "Kiểm tra lại dữ liệu gốc".into(),
-                    is_extra: false, has_lunch: false, skip_nb: false, user_choice: 0, partial_mode: 0,
-                });
+                self.base_xp_items.push(new_xp_item(
+                    msnv, date_out, "LỖI DỮ LIỆU: KHÔNG ĐỌC ĐƯỢC NGÀY".into(),
+                    String::new(), String::new(), "Kiểm tra lại dữ liệu gốc".into(),
+                    false, false,
+                ));
                 continue;
             };
             let Some((s_start, s_end)) = self.get_shift_times_xp(base_d, &s_name) else {
-                self.base_xp_items.push(BaseXpItem {
-                    msnv, ngay: date_out, orig_loai: "LỖI DỮ LIỆU: KHÔNG NHẬN DIỆN ĐƯỢC CA".into(),
-                    start: String::new(), end: String::new(), lydo: format!("Ca bị lỗi: {}", s_name),
-                    is_extra: false, has_lunch: false, skip_nb: false, user_choice: 0, partial_mode: 0,
-                });
+                self.base_xp_items.push(new_xp_item(
+                    msnv, date_out, "LỖI DỮ LIỆU: KHÔNG NHẬN DIỆN ĐƯỢC CA".into(),
+                    String::new(), String::new(), format!("Ca bị lỗi: {}", s_name),
+                    false, false,
+                ));
                 continue;
             };
 
@@ -908,19 +934,16 @@ impl TimekeepApp {
                 if calc_leave_mins(&st, &end, has_lunch).map_or(false, |m| m >= 480) {
                     loai = "ACTR PHÉP NĂM".into();
                 }
-                self.base_xp_items.push(BaseXpItem {
-                    msnv: msnv.clone(),
-                    ngay: date_out.clone(),
-                    orig_loai: loai.clone(),
-                    start: st,
+                self.base_xp_items.push(new_xp_item(
+                    msnv.clone(),
+                    date_out.clone(),
+                    loai.clone(),
+                    st,
                     end,
-                    lydo: loai,
-                    is_extra: extra,
+                    loai,
+                    extra,
                     has_lunch,
-                    skip_nb: false,
-                    user_choice: 0,
-                    partial_mode: 0,
-                });
+                ));
             }
         }
 
@@ -987,10 +1010,32 @@ impl TimekeepApp {
         let mut done: HashSet<String> = HashSet::new();
 
         for (idx, it) in self.base_xp_items.iter().enumerate() {
+            if it.is_fully_deleted() {
+                continue;
+            }
             let Some(req) = calc_leave_mins(&it.start, &it.end, it.has_lunch) else {
                 continue;
             };
             let is_4_or_8 = req == 240 || req == 480;
+
+            if it.partial_mode != 1 {
+                if let Some(ref m_loai) = it.manual_part0 {
+                    if m_loai == "ACTR NGHỈ BÙ" {
+                        if let Some(rem) = rem_map.get_mut(&it.msnv) {
+                            if *rem >= req {
+                                *rem -= req;
+                            }
+                        }
+                    } else if m_loai == "ACTR PHÉP NĂM" && has_pn && is_4_or_8 {
+                        if let Some(p) = pn_rem_map.get_mut(&it.msnv) {
+                            if *p >= req {
+                                *p -= req;
+                            }
+                        }
+                    }
+                    continue;
+                }
+            }
 
             if it.user_choice == 3 && !it.skip_nb {
                 continue;
@@ -1058,6 +1103,9 @@ impl TimekeepApp {
         let (mut full_cnt, mut split_cnt) = (0, 0);
 
         for (idx, it) in self.base_xp_items.iter().enumerate() {
+            if it.is_fully_deleted() {
+                continue;
+            }
             let nat = &nat_infos[idx];
             let req_opt = calc_leave_mins(&it.start, &it.end, it.has_lunch);
             let is_four_or_eight = req_opt.map_or(false, |m| m == 240 || m == 480);
@@ -1079,9 +1127,38 @@ impl TimekeepApp {
                 "MSNV" => &it.msnv, "Ngày" => &it.ngay, "*Loại hình xin phép" => &fallback_loai,
                 "*Thời gian bắt đầu xin phép" => &it.start, "*Thời gian kết thúc xin phép" => &it.end,
                 "Lý do nghỉ phép" => &fallback_loai, "IsExtra" => if it.is_extra { "True" } else { "False" },
-                "MenuKind" => "", "BaseIdx" => idx
+                "MenuKind" => "", "BaseIdx" => idx, "RowPart" => "0"
             );
 
+            // Nếu người dùng đã chọn trực tiếp loại hình (Manual) trên dòng không tách
+            if it.partial_mode != 1 {
+                if let Some(ref m_loai) = it.manual_part0 {
+                    if let Some(req_m) = req_opt {
+                        if m_loai == "ACTR NGHỈ BÙ" && has_nb {
+                            if let Some(sum) = nb_map.get_mut(&it.msnv) {
+                                let avail_m = ((sum.con_lai_sau_tru * 60.0).round() as i64 / 30) * 30;
+                                if avail_m >= req_m {
+                                    let req_h = req_m as f64 / 60.0;
+                                    sum.con_lai_sau_tru = ((sum.con_lai_sau_tru - req_h) * 100.0).round() / 100.0;
+                                    sum.da_dung_xin_phep = ((sum.da_dung_xin_phep + req_h) * 100.0).round() / 100.0;
+                                    full_cnt += 1;
+                                }
+                            }
+                        } else if m_loai == "ACTR PHÉP NĂM" && has_pn && can_use_pn {
+                            if let Some(p) = pn_rem_map.get_mut(&it.msnv) {
+                                *p -= req_m;
+                            }
+                        }
+                    }
+                    row.insert("*Loại hình xin phép".into(), m_loai.clone());
+                    row.insert("Lý do nghỉ phép".into(), m_loai.clone());
+                    row.insert("CurVal".into(), format!("MANUAL:{}", m_loai));
+                    self.data_xp_result.push(row);
+                    continue;
+                }
+            }
+
+            // KHÔNG NẠP FILE NGHỈ BÙ (CHỈ DÙNG FILE PHÉP NĂM)
             if !has_nb {
                 if let Some(req_m) = req_opt {
                     if is_four_or_eight && has_pn {
@@ -1232,26 +1309,41 @@ impl TimekeepApp {
 
                     if it.partial_mode == 1 && avail_m > 0 {
                         if let Some(((r1_s, r1_e), (r2_s, r2_e))) = split_leave_interval(&it.start, &it.end, split_m, it.has_lunch) {
-                            sum.con_lai_sau_tru = ((sum.con_lai_sau_tru - nb_h) * 100.0).round().max(0.0) / 100.0;
-                            sum.da_dung_xin_phep = ((sum.da_dung_xin_phep + nb_h) * 100.0).round() / 100.0;
                             set_menu_opts(&mut row, "PARTIAL", "1", &opts);
 
-                            let mut r1 = row.clone();
-                            r1.insert("*Loại hình xin phép".into(), "ACTR NGHỈ BÙ".into());
-                            r1.insert("*Thời gian bắt đầu xin phép".into(), r1_s);
-                            r1.insert("*Thời gian kết thúc xin phép".into(), r1_e);
-                            r1.insert("Lý do nghỉ phép".into(), "ACTR NGHỈ BÙ".into());
-                            r1.insert("IsExtra".into(), "True".into());
+                            if !it.deleted_part0 {
+                                let loai1 = it.manual_part0.clone().unwrap_or_else(|| "ACTR NGHỈ BÙ".into());
+                                if loai1 == "ACTR NGHỈ BÙ" {
+                                    sum.con_lai_sau_tru = ((sum.con_lai_sau_tru - nb_h) * 100.0).round().max(0.0) / 100.0;
+                                    sum.da_dung_xin_phep = ((sum.da_dung_xin_phep + nb_h) * 100.0).round() / 100.0;
+                                }
+                                let mut r1 = row.clone();
+                                r1.insert("RowPart".into(), "0".into());
+                                r1.insert("*Loại hình xin phép".into(), loai1.clone());
+                                r1.insert("*Thời gian bắt đầu xin phép".into(), r1_s);
+                                r1.insert("*Thời gian kết thúc xin phép".into(), r1_e);
+                                r1.insert("Lý do nghỉ phép".into(), loai1.clone());
+                                r1.insert("IsExtra".into(), "True".into());
+                                if it.manual_part0.is_some() {
+                                    r1.insert("CurVal".into(), format!("MANUAL:{}", loai1));
+                                }
+                                self.data_xp_result.push(r1);
+                            }
 
-                            let mut r2 = row;
-                            r2.insert("*Loại hình xin phép".into(), "ACTR VIỆC RIÊNG".into());
-                            r2.insert("*Thời gian bắt đầu xin phép".into(), r2_s);
-                            r2.insert("*Thời gian kết thúc xin phép".into(), r2_e);
-                            r2.insert("Lý do nghỉ phép".into(), "ACTR VIỆC RIÊNG".into());
-                            r2.insert("IsExtra".into(), "True".into());
-
-                            self.data_xp_result.push(r1);
-                            self.data_xp_result.push(r2);
+                            if !it.deleted_part1 {
+                                let loai2 = it.manual_part1.clone().unwrap_or_else(|| "ACTR VIỆC RIÊNG".into());
+                                let mut r2 = row;
+                                r2.insert("RowPart".into(), "1".into());
+                                r2.insert("*Loại hình xin phép".into(), loai2.clone());
+                                r2.insert("*Thời gian bắt đầu xin phép".into(), r2_s);
+                                r2.insert("*Thời gian kết thúc xin phép".into(), r2_e);
+                                r2.insert("Lý do nghỉ phép".into(), loai2.clone());
+                                r2.insert("IsExtra".into(), "True".into());
+                                if it.manual_part1.is_some() {
+                                    r2.insert("CurVal".into(), format!("MANUAL:{}", loai2));
+                                }
+                                self.data_xp_result.push(r2);
+                            }
                             continue;
                         }
                     }
@@ -1393,7 +1485,7 @@ impl TimekeepApp {
     }
 
     // =========================================================================
-    // --- XUẤT 4 BÁO CÁO EXCEL RA BỘ NHỚ (CHẠY ĐA NỀN TẢNG ANDROID 16 & PC) ---
+    // --- XUẤT 4 BÁO CÁO EXCEL RA BỘ NHỚ (ANDROID 16 & DESKTOP) ---
     // =========================================================================
     fn build_excel_cc(&self) -> Result<ExportPayload, String> {
         if self.data_result.is_empty() {
@@ -1432,8 +1524,7 @@ impl TimekeepApp {
         let buf = wb.save_to_buffer().map_err(|e| format!("Lỗi tạo Excel: {}", e))?;
         Ok(ExportPayload {
             filename: format!("Bao_Cao_Cham_Cong_{}.xlsx", Local::now().format("%d_%m_%Y")),
-            base64: b64_encode(&buf),
-            message: "Xuất bảng Chấm công thành công!".into(),
+            data_base64: b64_encode(&buf),
         })
     }
 
@@ -1502,8 +1593,7 @@ impl TimekeepApp {
         let buf = wb.save_to_buffer().map_err(|e| format!("Lỗi tạo Form Excel: {}", e))?;
         Ok(ExportPayload {
             filename: format!("Form_Bao_Cao_Tong_Hop_{}.xlsx", Local::now().format("%d_%m_%Y")),
-            base64: b64_encode(&buf),
-            message: "Xuất Form cố định thành công!".into(),
+            data_base64: b64_encode(&buf),
         })
     }
 
@@ -1548,8 +1638,7 @@ impl TimekeepApp {
         let buf = wb.save_to_buffer().map_err(|e| format!("Lỗi tạo file Xin Phép: {}", e))?;
         Ok(ExportPayload {
             filename: format!("Ket_Qua_Xin_Phep_{}.xlsx", Local::now().format("%d_%m_%Y")),
-            base64: b64_encode(&buf),
-            message: "Xuất file Xin Phép thành công!".into(),
+            data_base64: b64_encode(&buf),
         })
     }
 
@@ -1605,30 +1694,31 @@ impl TimekeepApp {
         let buf = wb.save_to_buffer().map_err(|e| format!("Lỗi tạo file Nghỉ bù: {}", e))?;
         Ok(ExportPayload {
             filename: format!("Ket_Qua_So_Du_Nghi_Bu_{}.xlsx", Local::now().format("%d_%m_%Y")),
-            base64: b64_encode(&buf),
-            message: "Xuất Tổng hợp Số dư Nghỉ bù thành công!".into(),
+            data_base64: b64_encode(&buf),
         })
     }
 }
 
 // =========================================================================
-// --- TAURI V2 COMMANDS (GIỮ NGUYÊN SNAKE_CASE KHỚP VỚI FRONTEND) ---
+// --- TAURI V2 COMMANDS (KHỚP TỪNG TÊN LỆNH & THAM SỐ VỚI INDEX.HTML) ---
 // =========================================================================
-#[tauri::command(rename_all = "snake_case")]
-fn get_state(state: State<'_, Mutex<TimekeepApp>>) -> Result<UiPayload, String> {
-    let app = state.lock().map_err(|e| e.to_string())?;
-    Ok(app.to_payload(None, false))
-}
-
 #[tauri::command(rename_all = "snake_case")]
 fn upload_file(
     state: State<'_, Mutex<TimekeepApp>>,
     target: String,
     name: String,
-    data_b64: String,
-) -> Result<UiPayload, String> {
-    let bytes = b64_decode(&data_b64)?;
+    data_base64: String,
+) -> Result<CmdResponse, String> {
+    let clean_b64 = data_base64
+        .split_once("base64,")
+        .map(|(_, b)| b)
+        .unwrap_or(&data_base64);
+    let bytes = b64_decode(clean_b64)?;
+    if bytes.is_empty() {
+        return Err("File được chọn bị rỗng (0 byte)!".into());
+    }
     let mut app = state.lock().map_err(|e| e.to_string())?;
+    let disp_name = name.clone();
     let slot = FileSlot { name, bytes };
     match target.as_str() {
         "f1" => app.file1 = slot,
@@ -1636,33 +1726,33 @@ fn upload_file(
         "fxp" => app.file_xp = slot,
         "fnb" => app.file_nb = slot,
         "fpn" => app.file_pn = slot,
-        _ => return Err("Target file không hợp lệ".into()),
+        _ => return Err(format!("Target file không hợp lệ: {}", target)),
     }
-    Ok(app.to_payload(None, false))
+    Ok(app.to_response(Some(format!("Đã nạp file: {}", disp_name)), false))
 }
 
 #[tauri::command(rename_all = "snake_case")]
-fn clear_file(state: State<'_, Mutex<TimekeepApp>>, target: String) -> Result<UiPayload, String> {
+fn clear_opt_file(state: State<'_, Mutex<TimekeepApp>>, kind: String) -> Result<CmdResponse, String> {
     let mut app = state.lock().map_err(|e| e.to_string())?;
-    match target.as_str() {
-        "fnb" => {
+    match kind.as_str() {
+        "nb" | "fnb" => {
             app.file_nb = FileSlot::default();
             app.base_nb_map.clear();
             app.nghi_bu_summary.clear();
             app.rebuild_xp_display_rows();
         }
-        "fpn" => {
+        "pn" | "fpn" => {
             app.file_pn = FileSlot::default();
             app.base_pn_map.clear();
             app.rebuild_xp_display_rows();
         }
         _ => {}
     }
-    Ok(app.to_payload(None, false))
+    Ok(app.to_response(Some("Đã bỏ chọn file tùy chọn.".into()), false))
 }
 
 #[tauri::command(rename_all = "snake_case")]
-fn save_settings(state: State<'_, Mutex<TimekeepApp>>, settings: ShiftConfig) -> Result<UiPayload, String> {
+fn save_settings(state: State<'_, Mutex<TimekeepApp>>, settings: ShiftConfig) -> Result<CmdResponse, String> {
     let pairs = [
         (&settings.hc_start, &settings.hc_end),
         (&settings.ca1_start, &settings.ca1_end),
@@ -1683,43 +1773,72 @@ fn save_settings(state: State<'_, Mutex<TimekeepApp>>, settings: ShiftConfig) ->
         ca3_start: normalize_time_str(&settings.ca3_start),
         ca3_end: normalize_time_str(&settings.ca3_end),
     };
-    Ok(app.to_payload(Some("Đã cập nhật cấu hình giờ ca!".into()), false))
+    Ok(app.to_response(Some("Đã cập nhật cấu hình giờ ca!".into()), false))
 }
 
 #[tauri::command(rename_all = "snake_case")]
-fn process_cc(state: State<'_, Mutex<TimekeepApp>>) -> Result<UiPayload, String> {
+fn process_cc(state: State<'_, Mutex<TimekeepApp>>) -> Result<CmdResponse, String> {
     let mut app = state.lock().map_err(|e| e.to_string())?;
-    let msg = app.process_cham_cong()?;
-    Ok(app.to_payload(Some(msg), true))
+    match app.process_cham_cong() {
+        Ok(msg) => Ok(app.to_response(Some(msg), false)),
+        Err(err) => Ok(app.to_response(Some(err), true)),
+    }
 }
 
 #[tauri::command(rename_all = "snake_case")]
-fn change_tt(state: State<'_, Mutex<TimekeepApp>>, idx: usize, val: String) -> Result<UiPayload, String> {
+fn change_tt(state: State<'_, Mutex<TimekeepApp>>, idx: usize, val: String) -> Result<CmdResponse, String> {
     let mut app = state.lock().map_err(|e| e.to_string())?;
     if idx < app.data_result.len() {
         app.data_result[idx].insert("Timetable".into(), val);
         app.process_single_row(idx, true);
         app.refresh_timetable_options();
     }
-    Ok(app.to_payload(None, false))
+    Ok(app.to_response(None, false))
 }
 
 #[tauri::command(rename_all = "snake_case")]
-fn process_xp(state: State<'_, Mutex<TimekeepApp>>) -> Result<UiPayload, String> {
+fn process_xp(state: State<'_, Mutex<TimekeepApp>>) -> Result<CmdResponse, String> {
     let mut app = state.lock().map_err(|e| e.to_string())?;
-    let msg = app.process_xin_phep()?;
-    Ok(app.to_payload(Some(msg), false))
+    match app.process_xin_phep() {
+        Ok(msg) => Ok(app.to_response(Some(msg), false)),
+        Err(err) => Ok(app.to_response(Some(err), true)),
+    }
 }
 
 #[tauri::command(rename_all = "snake_case")]
-fn xp_set_choice(state: State<'_, Mutex<TimekeepApp>>, base_idx: usize, choice: u8) -> Result<UiPayload, String> {
+fn xp_set_manual(
+    state: State<'_, Mutex<TimekeepApp>>,
+    base_idx: usize,
+    part: u8,
+    loai: String,
+) -> Result<CmdResponse, String> {
+    let mut app = state.lock().map_err(|e| e.to_string())?;
+    if let Some(it) = app.base_xp_items.get_mut(base_idx) {
+        if part == 1 {
+            it.manual_part1 = Some(loai);
+        } else {
+            it.manual_part0 = Some(loai);
+        }
+    }
+    app.rebuild_xp_display_rows();
+    Ok(app.to_response(None, false))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn xp_set_choice(
+    state: State<'_, Mutex<TimekeepApp>>,
+    base_idx: usize,
+    choice: u8,
+) -> Result<CmdResponse, String> {
     let mut app = state.lock().map_err(|e| e.to_string())?;
     if let Some(it) = app.base_xp_items.get_mut(base_idx) {
         it.user_choice = choice;
         it.skip_nb = false;
+        it.manual_part0 = None;
+        it.manual_part1 = None;
     }
     app.rebuild_xp_display_rows();
-    Ok(app.to_payload(None, false))
+    Ok(app.to_response(None, false))
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -1729,21 +1848,24 @@ fn xp_upper_choice(
     partial_idx: usize,
     choice: u8,
     can_swap: bool,
-) -> Result<UiPayload, String> {
+) -> Result<CmdResponse, String> {
     let mut app = state.lock().map_err(|e| e.to_string())?;
     if let Some(u) = app.base_xp_items.get_mut(upper_idx) {
         u.user_choice = choice;
         u.skip_nb = choice == 3;
+        u.manual_part0 = None;
     }
     if let Some(p) = app.base_xp_items.get_mut(partial_idx) {
         if choice == 3 && can_swap {
             p.partial_mode = 2;
+            p.manual_part0 = None;
+            p.manual_part1 = None;
         } else if choice != 3 && p.partial_mode == 2 {
             p.partial_mode = 0;
         }
     }
     app.rebuild_xp_display_rows();
-    Ok(app.to_payload(None, false))
+    Ok(app.to_response(None, false))
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -1752,23 +1874,50 @@ fn xp_partial_mode(
     partial_idx: usize,
     upper_idx: Option<usize>,
     mode: u8,
-) -> Result<UiPayload, String> {
+) -> Result<CmdResponse, String> {
     let mut app = state.lock().map_err(|e| e.to_string())?;
     if let Some(p) = app.base_xp_items.get_mut(partial_idx) {
         p.partial_mode = mode;
+        p.manual_part0 = None;
+        p.manual_part1 = None;
     }
     if let Some(u_idx) = upper_idx {
         if let Some(u) = app.base_xp_items.get_mut(u_idx) {
             u.skip_nb = mode == 2;
             if mode == 2 {
                 u.user_choice = 3;
+                u.manual_part0 = None;
             } else if u.user_choice == 3 {
                 u.user_choice = 0;
             }
         }
     }
     app.rebuild_xp_display_rows();
-    Ok(app.to_payload(None, false))
+    Ok(app.to_response(None, false))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+fn xp_delete_rows(
+    state: State<'_, Mutex<TimekeepApp>>,
+    targets: Vec<DeleteTarget>,
+) -> Result<CmdResponse, String> {
+    let mut app = state.lock().map_err(|e| e.to_string())?;
+    let mut deleted_cnt = 0;
+    for t in targets {
+        if let Some(it) = app.base_xp_items.get_mut(t.base_idx) {
+            if t.part == 1 {
+                if !it.deleted_part1 {
+                    it.deleted_part1 = true;
+                    deleted_cnt += 1;
+                }
+            } else if !it.deleted_part0 {
+                it.deleted_part0 = true;
+                deleted_cnt += 1;
+            }
+        }
+    }
+    app.rebuild_xp_display_rows();
+    Ok(app.to_response(Some(format!("Đã xóa {} dòng xin phép!", deleted_cnt)), false))
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -1788,16 +1937,17 @@ pub fn run() {
     tauri::Builder::default()
         .manage(Mutex::new(TimekeepApp::default()))
         .invoke_handler(tauri::generate_handler![
-            get_state,
             upload_file,
-            clear_file,
+            clear_opt_file,
             save_settings,
             process_cc,
             change_tt,
             process_xp,
+            xp_set_manual,
             xp_set_choice,
             xp_upper_choice,
             xp_partial_mode,
+            xp_delete_rows,
             export_excel
         ])
         .run(tauri::generate_context!())
@@ -1807,6 +1957,36 @@ pub fn run() {
 // =========================================================================
 // --- HÀM HỖ TRỢ MENU, EXCEL, BASE64 & PARSER ĐỌC TRỰC TIẾP TỪ BYTES ---
 // =========================================================================
+#[allow(clippy::too_many_arguments)]
+fn new_xp_item(
+    msnv: String,
+    ngay: String,
+    orig_loai: String,
+    start: String,
+    end: String,
+    lydo: String,
+    is_extra: bool,
+    has_lunch: bool,
+) -> BaseXpItem {
+    BaseXpItem {
+        msnv,
+        ngay,
+        orig_loai,
+        start,
+        end,
+        lydo,
+        is_extra,
+        has_lunch,
+        skip_nb: false,
+        user_choice: 0,
+        partial_mode: 0,
+        manual_part0: None,
+        manual_part1: None,
+        deleted_part0: false,
+        deleted_part1: false,
+    }
+}
+
 fn set_menu_opts(row: &mut HashMap<String, String>, kind: &str, cur_val: &str, opts: &[(&str, String)]) {
     row.insert("MenuKind".into(), kind.into());
     row.insert("CurVal".into(), cur_val.into());
