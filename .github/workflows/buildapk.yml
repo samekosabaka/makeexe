@@ -57,10 +57,20 @@ jobs:
           pkg = next(l for l in open(kt) if l.startswith("package ")).strip()
           code = pkg + """
 
+          import android.content.ContentValues
+          import android.content.Context
+          import android.os.Build
           import android.os.Bundle
+          import android.os.Environment
+          import android.provider.MediaStore
+          import android.util.Base64
           import android.view.View
+          import android.webkit.JavascriptInterface
+          import android.webkit.WebView
           import androidx.core.view.ViewCompat
           import androidx.core.view.WindowInsetsCompat
+          import java.io.File
+          import java.io.FileOutputStream
 
           class MainActivity : TauriActivity() {
               override fun onCreate(savedInstanceState: Bundle?) {
@@ -76,6 +86,49 @@ jobs:
                       WindowInsetsCompat.CONSUMED
                   }
                   ViewCompat.requestApplyInsets(rootView)
+              }
+
+              override fun onWebViewCreate(webView: WebView) {
+                  super.onWebViewCreate(webView)
+                  webView.addJavascriptInterface(AndroidBridge(this), "AndroidBridge")
+              }
+
+              inner class AndroidBridge(private val ctx: Context) {
+                  @JavascriptInterface
+                  fun saveExcel(filename: String, dataBase64: String): String {
+                      return try {
+                          val bytes = Base64.decode(dataBase64, Base64.DEFAULT)
+                          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                              val values = ContentValues().apply {
+                                  put(MediaStore.Downloads.DISPLAY_NAME, filename)
+                                  put(
+                                      MediaStore.Downloads.MIME_TYPE,
+                                      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                  )
+                                  put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                                  put(MediaStore.Downloads.IS_PENDING, 1)
+                              }
+                              val resolver = ctx.contentResolver
+                              val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                                  ?: return "Lỗi: Không thể tạo file trong thư mục Downloads!"
+                              resolver.openOutputStream(uri)?.use { it.write(bytes) }
+                                  ?: return "Lỗi: Không thể ghi dữ liệu file!"
+                              values.clear()
+                              values.put(MediaStore.Downloads.IS_PENDING, 0)
+                              resolver.update(uri, values, null, null)
+                              "OK: Đã lưu vào Downloads/$filename"
+                          } else {
+                              @Suppress("DEPRECATION")
+                              val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                              if (!dir.exists()) dir.mkdirs()
+                              val file = File(dir, filename)
+                              FileOutputStream(file).use { it.write(bytes) }
+                              "OK: Đã lưu vào Downloads/$filename"
+                          }
+                      } catch (e: Exception) {
+                          "Lỗi lưu file Excel: ${e.message}"
+                      }
+                  }
               }
           }
           """
