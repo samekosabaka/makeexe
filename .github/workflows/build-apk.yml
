@@ -1,0 +1,119 @@
+name: Build Android 16 APK (Tauri v2)
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_name:
+        description: 'Tên file APK xuất ra (không cần đuôi .apk)'
+        required: true
+        default: 'TIMEKEEP_Android16'
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Rust (aarch64-linux-android)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Setup Android SDK & NDK r27 (16KB Page Size cho Android 16)
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android 16 SDK & NDK r27
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager "platform-tools" "platforms;android-35" "platforms;android-36" "build-tools;35.0.0" "build-tools;36.0.0" "ndk;27.2.12479018"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> $GITHUB_ENV
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> $GITHUB_ENV
+
+      - name: Cache Cargo Build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Generate Default App Icon (nếu chưa có app-icon.png)
+        run: |
+          python3 - <<'EOF'
+          import os, struct, zlib
+          if not os.path.exists("app-icon.png"):
+              w, h = 512, 512
+              raw = bytearray()
+              for y in range(h):
+                  raw.append(0)
+                  for x in range(w):
+                      cx, cy = x - 256, y - 256
+                      r = (cx*cx + cy*cy) ** 0.5
+                      if r < 220:
+                          if 175 < r < 195 or (abs(cx) < 12 and -120 < cy < 15) or (abs(cy) < 12 and -15 < cx < 95):
+                              raw.extend((255, 255, 255, 255))
+                          else:
+                              raw.extend((37, 99, 235, 255))
+                      else:
+                          raw.extend((15, 23, 42, 255))
+              def chunk(tag, data):
+                  return struct.pack("!I", len(data)) + tag + data + struct.pack("!I", zlib.crc32(tag + data) & 0xffffffff)
+              png = b"\x89PNG\r\n\x1a\n"
+              png += chunk(b"IHDR", struct.pack("!IIBBBBB", w, h, 8, 6, 0, 0, 0))
+              png += chunk(b"IDAT", zlib.compress(bytes(raw), 9))
+              png += chunk(b"IEND", b"")
+              with open("app-icon.png", "wb") as f:
+                  f.write(png)
+          EOF
+          npx --yes @tauri-apps/cli@^2 icon app-icon.png
+
+      - name: Initialize & Patch Android Project
+        run: |
+          npx --yes @tauri-apps/cli@^2 android init --ci
+          cp android_patch/MainActivity.kt src-tauri/gen/android/app/src/main/java/com/iamhisu/timekeep/MainActivity.kt
+
+      - name: Build Android APK (ARM64 + 16KB Alignment)
+        env:
+          RUSTFLAGS: "-C link-arg=-Wl,-z,max-page-size=16384"
+        run: |
+          npx --yes @tauri-apps/cli@^2 android build --apk --target aarch64
+
+      - name: Align (16KB) & Sign Release APK
+        run: |
+          mkdir -p publish
+          UNSIGNED_APK=$(find src-tauri/gen/android/app/build/outputs/apk -name "*-unsigned.apk" | head -n 1)
+          if [ -z "$UNSIGNED_APK" ]; then
+            UNSIGNED_APK=$(find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" | head -n 1)
+          fi
+          echo "Found APK: $UNSIGNED_APK"
+
+          keytool -genkey -v -keystore release.keystore -alias timekeep \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass timekeep123 -keypass timekeep123 \
+            -dname "CN=Timekeep, OU=HR, O=ACTR, L=VN, S=VN, C=VN"
+
+          BUILD_TOOLS=$(ls -d "$ANDROID_HOME/build-tools/"* | sort -V | tail -n 1)
+          "$BUILD_TOOLS/zipalign" -P 16 -f 4 "$UNSIGNED_APK" aligned.apk || "$BUILD_TOOLS/zipalign" -f 4 "$UNSIGNED_APK" aligned.apk
+          "$BUILD_TOOLS/apksigner" sign \
+            --ks release.keystore \
+            --ks-pass pass:timekeep123 \
+            --key-pass pass:timekeep123 \
+            --ks-key-alias timekeep \
+            --out "publish/${{ github.event.inputs.app_name }}.apk" \
+            aligned.apk
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ github.event.inputs.app_name }}-APK
+          path: publish/${{ github.event.inputs.app_name }}.apk
