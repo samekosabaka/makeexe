@@ -1,0 +1,1012 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>TIMEKEEP</title>
+<style>
+  :root {
+    --bg-main: #f4f6f9;
+    --bg-card: #ffffff;
+    --bg-header: #1e293b;
+    --text-header: #ffffff;
+    --text-main: #1e293b;
+    --text-muted: #64748b;
+    --border: #e2e8f0;
+    --primary: #2563eb;
+    --success: #10b981;
+    --danger: #ef4444;
+    --warning: #f59e0b;
+    --row-even: #f8fafc;
+    --row-hover: #eff6ff;
+    --bvt-row-bg: #ffedd5;
+    --bvt-row-fg: #9a3412;
+    --hl-cell-bg: #fef08a;
+    --hl-cell-fg: #854d0e;
+    --xp-hl-bg: #fef9c3;
+    --xp-hl-fg: #92400e;
+  }
+
+  [data-theme="Tối"] {
+    --bg-main: #0f172a;
+    --bg-card: #1e293b;
+    --bg-header: #020617;
+    --text-header: #f8fafc;
+    --text-main: #f1f5f9;
+    --text-muted: #94a3b8;
+    --border: #334155;
+    --primary: #3b82f6;
+    --row-even: #192338;
+    --row-hover: #263554;
+    --bvt-row-bg: rgba(194, 65, 12, 0.35);
+    --bvt-row-fg: #fdba74;
+    --hl-cell-bg: rgba(202, 138, 4, 0.42);
+    --hl-cell-fg: #fef08a;
+    --xp-hl-bg: rgba(180, 83, 9, 0.35);
+    --xp-hl-fg: #fde68a;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body {
+    font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg-main);
+    color: var(--text-main);
+    font-size: 13px;
+    height: 100vh;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    gap: 8px;
+  }
+  .tabs { display: flex; gap: 6px; }
+  .tab-btn {
+    padding: 8px 14px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-muted);
+    font-weight: 700;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .tab-btn.active {
+    background: var(--primary);
+    color: #fff;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 7px 12px;
+    min-height: 34px;
+    border-radius: 7px;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    color: var(--text-main);
+    font-weight: 600;
+    font-size: 12.5px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .btn:active { transform: scale(0.98); }
+  .btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .btn-success { background: var(--success); color: #fff; border-color: var(--success); }
+  .btn-warning { background: var(--warning); color: #fff; border-color: var(--warning); }
+  .btn-danger { background: var(--danger); color: #fff; border-color: var(--danger); }
+
+  .tab-view {
+    display: none;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    padding: 8px 10px;
+    gap: 8px;
+  }
+  .tab-view.active { display: flex; }
+
+  .control-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+  .file-group { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 260px; }
+  .file-row { display: flex; align-items: center; gap: 6px; }
+  .file-label { width: 125px; font-weight: 600; color: var(--text-muted); font-size: 12px; flex-shrink: 0; }
+  .file-box {
+    flex: 1;
+    min-width: 110px;
+    padding: 6px 8px;
+    background: var(--bg-main);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .action-group { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+
+  .filter-bar {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+  }
+  .filter-item { display: flex; align-items: center; gap: 5px; position: relative; }
+  .filter-item label { font-weight: 600; color: var(--text-muted); font-size: 12px; }
+  select.std-select {
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg-main);
+    color: var(--text-main);
+    font-weight: 600;
+    font-size: 12px;
+  }
+
+  .multi-dropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    width: 220px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.22);
+    padding: 8px;
+    z-index: 100;
+    display: none;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .multi-dropdown.open { display: flex; }
+  .multi-search {
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: var(--bg-main);
+    color: var(--text-main);
+    font-size: 12px;
+  }
+  .multi-actions { display: flex; gap: 6px; }
+  .multi-actions button { flex: 1; font-size: 11px; padding: 4px 6px; min-height: 28px; }
+  .multi-list {
+    max-height: 180px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    border-top: 1px solid var(--border);
+    padding-top: 5px;
+  }
+  .multi-item { display: flex; align-items: center; gap: 6px; padding: 4px; font-size: 12.5px; }
+
+  .table-wrap {
+    flex: 1;
+    min-height: 0;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12.5px; }
+  thead th {
+    position: sticky;
+    top: 0;
+    background: var(--bg-header);
+    color: var(--text-header);
+    font-weight: 600;
+    padding: 9px 10px;
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+    border-right: 1px solid rgba(255,255,255,0.08);
+    white-space: nowrap;
+    z-index: 10;
+  }
+  tbody td {
+    padding: 6px 8px;
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  tbody tr:nth-child(even) { background: var(--row-even); }
+  tbody tr.row-bvt { background: var(--bvt-row-bg) !important; color: var(--bvt-row-fg); font-weight: 600; }
+  td.cell-hl { background: var(--hl-cell-bg) !important; color: var(--hl-cell-fg) !important; font-weight: 700; }
+  tbody tr.row-xp-hl { background: var(--xp-hl-bg) !important; color: var(--xp-hl-fg); font-weight: 600; }
+
+  select.cell-select {
+    width: 100%;
+    min-width: 165px;
+    padding: 5px 6px;
+    border-radius: 5px;
+    border: 1px solid var(--primary);
+    background: var(--bg-card);
+    color: var(--text-main);
+    font-weight: 700;
+    font-size: 12px;
+  }
+
+  .chk-del { width: 18px; height: 18px; cursor: pointer; accent-color: var(--danger); }
+
+  .bottom-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px 12px;
+    flex-shrink: 0;
+  }
+  .bottom-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+  .row-counter { font-weight: 600; color: var(--text-muted); font-size: 12px; }
+
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.55);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+    padding: 12px;
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    width: 100%;
+    max-width: 390px;
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .modal-title { font-size: 15px; font-weight: 700; text-align: center; }
+  .shift-grid {
+    display: grid;
+    grid-template-columns: 125px 1fr 16px 1fr;
+    align-items: center;
+    gap: 8px;
+  }
+  .shift-grid input {
+    width: 100%;
+    padding: 6px;
+    text-align: center;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-main);
+    color: var(--text-main);
+    font-weight: 700;
+  }
+
+  /* Toast thông báo nổi (thay thế MessageBox trên Android) */
+  .toast {
+    position: fixed;
+    bottom: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: 92vw;
+    padding: 10px 16px;
+    border-radius: 10px;
+    color: #fff;
+    font-weight: 600;
+    font-size: 13px;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.25);
+    z-index: 300;
+    display: none;
+    text-align: center;
+    white-space: pre-line;
+  }
+  .toast.info { background: #1e293b; display: block; }
+  .toast.ok { background: #059669; display: block; }
+  .toast.err { background: #dc2626; display: block; }
+
+  @media (max-width: 720px) {
+    .control-card { flex-direction: column; align-items: stretch; }
+    .file-label { width: 108px; }
+    .action-group { justify-content: flex-start; }
+  }
+</style>
+</head>
+<body data-theme="Sáng">
+
+  <!-- Hidden file input dùng cho Android SAF Picker -->
+  <input type="file" id="hiddenFileInput" accept="*/*" style="display:none">
+
+  <!-- TOP BAR (Đã bỏ Ghim và bỏ Neon) -->
+  <div class="topbar">
+    <div class="tabs">
+      <button class="tab-btn active" id="tabBtnCC" onclick="switchTab('CC')">🕒 Chấm Công</button>
+      <button class="tab-btn" id="tabBtnXP" onclick="switchTab('XP')">📝 Xin Phép</button>
+    </div>
+    <button class="btn" id="btnTheme" onclick="toggleTheme()">🌙 Tối</button>
+  </div>
+
+  <!-- ==================== TAB 1: CHẤM CÔNG ==================== -->
+  <div class="tab-view active" id="viewCC">
+    <div class="control-card">
+      <div class="file-group">
+        <div class="file-row">
+          <span class="file-label">1. File zkt:</span>
+          <div class="file-box" id="lblFile1">Chưa chọn file</div>
+          <button class="btn" onclick="triggerFilePick('f1')">Chọn File</button>
+        </div>
+        <div class="file-row">
+          <span class="file-label">2. Dữ liệu HR:</span>
+          <div class="file-box" id="lblFile2">Chưa chọn file</div>
+          <button class="btn" onclick="triggerFilePick('f2')">Chọn File</button>
+        </div>
+      </div>
+
+      <div class="action-group">
+        <button class="btn btn-primary" onclick="callProcessCC()">▶ Xử lý</button>
+        <button class="btn" onclick="openSettingsModal()">⚙ Cài đặt ca</button>
+      </div>
+    </div>
+
+    <div class="filter-bar">
+      <div class="filter-item">
+        <label>Ngày:</label>
+        <button class="btn" id="btnFilterDate" onclick="toggleDropdown('ddDate', event)">Tất cả ▾</button>
+        <div class="multi-dropdown" id="ddDate" onclick="event.stopPropagation()">
+          <input type="text" class="multi-search" id="searchDate" placeholder="Tìm ngày..." oninput="renderMultiList('date')">
+          <div class="multi-actions">
+            <button class="btn" onclick="selectAllMulti('date', true)">Tất cả</button>
+            <button class="btn" onclick="selectAllMulti('date', false)">Bỏ chọn</button>
+          </div>
+          <div class="multi-list" id="listDate"></div>
+        </div>
+      </div>
+
+      <div class="filter-item">
+        <label>MSNV:</label>
+        <button class="btn" id="btnFilterMsnv" onclick="toggleDropdown('ddMsnv', event)">Tất cả ▾</button>
+        <div class="multi-dropdown" id="ddMsnv" onclick="event.stopPropagation()">
+          <input type="text" class="multi-search" id="searchMsnv" placeholder="Tìm MSNV..." oninput="renderMultiList('msnv')">
+          <div class="multi-actions">
+            <button class="btn" onclick="selectAllMulti('msnv', true)">Tất cả</button>
+            <button class="btn" onclick="selectAllMulti('msnv', false)">Bỏ chọn</button>
+          </div>
+          <div class="multi-list" id="listMsnv"></div>
+        </div>
+      </div>
+
+      <div class="filter-item">
+        <label>Ca:</label>
+        <select class="std-select" id="selTimetable" onchange="renderTableCC()">
+          <option value="Tất cả">Tất cả</option>
+        </select>
+      </div>
+
+      <div class="filter-item">
+        <label>WT:</label>
+        <select class="std-select" id="selWorkTime" onchange="renderTableCC()">
+          <option value="Tất cả">Tất cả</option>
+          <option value="Bù vân tay">Bù vân tay</option>
+        </select>
+      </div>
+
+      <button class="btn btn-warning" onclick="resetFiltersCC()">↻ Xóa Lọc</button>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr id="theadCC"></tr></thead>
+        <tbody id="tbodyCC"></tbody>
+      </table>
+    </div>
+
+    <div class="bottom-bar">
+      <div class="bottom-buttons">
+        <button class="btn btn-success" onclick="exportExcel('cc')">📥 Xuất Bảng</button>
+        <button class="btn btn-danger" onclick="exportExcel('fixed')">📊 Xuất Form Cố Định</button>
+      </div>
+      <div class="row-counter" id="lblCountCC">0 dòng</div>
+    </div>
+  </div>
+
+  <!-- ==================== TAB 2: XIN PHÉP ==================== -->
+  <div class="tab-view" id="viewXP">
+    <div class="control-card">
+      <div class="file-group">
+        <div class="file-row">
+          <span class="file-label">1. Dữ liệu HR:</span>
+          <div class="file-box" id="lblFileXp">Chưa chọn file</div>
+          <button class="btn" onclick="triggerFilePick('fxp')">Chọn File</button>
+        </div>
+        <div class="file-row">
+          <span class="file-label">2. Số dư nghỉ bù:</span>
+          <div class="file-box" id="lblFileNb">Tùy chọn</div>
+          <button class="btn" onclick="triggerFilePick('fnb')">Chọn File</button>
+          <button class="btn btn-danger" id="btnClearNb" style="display:none; padding:4px 8px;" onclick="clearOptFile('nb')">✖</button>
+        </div>
+        <div class="file-row">
+          <span class="file-label">3. Số dư phép năm:</span>
+          <div class="file-box" id="lblFilePn">Tùy chọn</div>
+          <button class="btn" onclick="triggerFilePick('fpn')">Chọn File</button>
+          <button class="btn btn-danger" id="btnClearPn" style="display:none; padding:4px 8px;" onclick="clearOptFile('pn')">✖</button>
+        </div>
+      </div>
+
+      <div class="action-group">
+        <button class="btn btn-primary" onclick="callProcessXP()">▶ Xử lý</button>
+        <button class="btn btn-success" onclick="exportExcel('xp')">📥 Xuất Xin Phép</button>
+        <button class="btn btn-warning" onclick="exportExcel('nb')">📊 Xuất Nghỉ Bù</button>
+        <button class="btn" onclick="openSettingsModal()">⚙ Ca</button>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr id="theadXP"></tr></thead>
+        <tbody id="tbodyXP"></tbody>
+      </table>
+    </div>
+
+    <div class="bottom-bar">
+      <div class="bottom-buttons">
+        <button class="btn btn-danger" id="btnToggleDel" onclick="enterDeleteMode()">🗑️ Xóa dòng</button>
+        <button class="btn btn-danger" id="btnConfirmDel" style="display:none;" onclick="confirmDeleteRows()">✔ Xác nhận xóa (0)</button>
+        <button class="btn" id="btnCancelDel" style="display:none;" onclick="exitDeleteMode()">✖ Hủy</button>
+      </div>
+      <div class="row-counter" id="lblCountXP">Tổng: 0 dòng</div>
+    </div>
+  </div>
+
+  <!-- MODAL CÀI ĐẶT GIỜ CA -->
+  <div class="modal-backdrop" id="settingsModal">
+    <div class="modal-card">
+      <div class="modal-title">⚙ Cài đặt giờ ca (Chuẩn 24h)</div>
+      <div class="shift-grid">
+        <span>Hành chính (HC):</span>
+        <input type="text" id="inpHcS" value="07:30">
+        <span style="text-align:center">-</span>
+        <input type="text" id="inpHcE" value="17:00">
+
+        <span>Ca 1 (Sáng):</span>
+        <input type="text" id="inpCa1S" value="07:00">
+        <span style="text-align:center">-</span>
+        <input type="text" id="inpCa1E" value="15:00">
+
+        <span>Ca 2 (Chiều):</span>
+        <input type="text" id="inpCa2S" value="15:00">
+        <span style="text-align:center">-</span>
+        <input type="text" id="inpCa2E" value="23:00">
+
+        <span>Ca 3 (Đêm):</span>
+        <input type="text" id="inpCa3S" value="23:00">
+        <span style="text-align:center">-</span>
+        <input type="text" id="inpCa3E" value="07:00">
+      </div>
+      <button class="btn" onclick="loadOldShiftPreset()">↺ Form giờ cũ (06h-14h, 14h-22h, 22h-06h)</button>
+      <div style="display:flex; gap:10px;">
+        <button class="btn btn-primary" style="flex:1" onclick="applySettings()">✔ Áp dụng</button>
+        <button class="btn btn-danger" style="flex:1" onclick="closeSettingsModal()">✖ Đóng</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toastBox"></div>
+
+<script>
+  const CC_COLS = ["MSNV", "Name", "Date", "Timetable", "On duty", "Off duty", "Clock In", "Clock Out", "Late", "Early", "OT Time", "Work Time", "Kết Quả Công", "Nghỉ phép", "Tăng ca"];
+  const XP_COLS = ["MSNV", "Ngày", "*Loại hình xin phép", "*Thời gian bắt đầu xin phép", "*Thời gian kết thúc xin phép", "Lý do nghỉ phép"];
+  const ALL_LEAVE_TYPES = [
+    "ACTR VIỆC RIÊNG",
+    "ACTR NGHỈ BÙ",
+    "ACTR PHÉP NĂM",
+    "ACTR PHÉP BỆNH",
+    "ACTR NGHỈ KHÔNG LƯƠNG",
+    "ACTR VIỆC RIÊNG LUẬT",
+    "ACTR PHÉP TANG",
+    "ACTR KẾT HÔN",
+    "ACTR THAI SẢN NAM"
+  ];
+
+  let appState = {
+    theme: "Sáng",
+    file1: "", file2: "", file_xp: "", file_nb: "", file_pn: "",
+    shift_settings: { hc_start:"07:30", hc_end:"17:00", ca1_start:"07:00", ca1_end:"15:00", ca2_start:"15:00", ca2_end:"23:00", ca3_start:"23:00", ca3_end:"07:00" },
+    all_dates: [], all_msnvs: [], all_timetables: [],
+    cc_rows: [], xp_rows: []
+  };
+
+  let pendingFileTarget = "";
+  let selectedDates = new Set();
+  let selectedMsnvs = new Set();
+  let deleteMode = false;
+  let selectedDeleteKeys = new Set(); // "baseIdx:part"
+  let toastTimer = null;
+
+  document.getElementById('theadCC').innerHTML = CC_COLS.map(c => `<th>${c}</th>`).join('');
+  renderHeaderXP();
+
+  async function invokeCmd(cmd, args = {}) {
+    return await window.__TAURI__.core.invoke(cmd, args);
+  }
+
+  function showToast(msg, type = 'info') {
+    if (!msg) return;
+    const el = document.getElementById('toastBox');
+    el.textContent = msg;
+    el.className = `toast ${type}`;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { el.className = 'toast'; }, 3600);
+  }
+
+  function switchTab(tab) {
+    document.getElementById('tabBtnCC').classList.toggle('active', tab === 'CC');
+    document.getElementById('tabBtnXP').classList.toggle('active', tab === 'XP');
+    document.getElementById('viewCC').classList.toggle('active', tab === 'CC');
+    document.getElementById('viewXP').classList.toggle('active', tab === 'XP');
+  }
+
+  function toggleTheme() {
+    appState.theme = appState.theme === "Sáng" ? "Tối" : "Sáng";
+    document.body.setAttribute('data-theme', appState.theme);
+    document.getElementById('btnTheme').textContent = appState.theme === "Sáng" ? "🌙 Tối" : "☀️ Sáng";
+  }
+
+  window.addEventListener('click', () => {
+    document.getElementById('ddDate').classList.remove('open');
+    document.getElementById('ddMsnv').classList.remove('open');
+  });
+
+  function toggleDropdown(id, ev) {
+    ev.stopPropagation();
+    const other = id === 'ddDate' ? 'ddMsnv' : 'ddDate';
+    document.getElementById(other).classList.remove('open');
+    document.getElementById(id).classList.toggle('open');
+  }
+
+  function escHtml(str) {
+    return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // --- CHỌN FILE QUA ANDROID DOCUMENT PICKER (<input type="file">) ---
+  function triggerFilePick(target) {
+    pendingFileTarget = target;
+    const inp = document.getElementById('hiddenFileInput');
+    inp.value = '';
+    inp.click();
+  }
+
+  document.getElementById('hiddenFileInput').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file || !pendingFileTarget) return;
+    try {
+      const buf = await file.arrayBuffer();
+      const bytes = new Uint8Array(buf);
+      let binary = '';
+      const chunk = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+      }
+      const b64 = btoa(binary);
+      const res = await invokeCmd('upload_file', { target: pendingFileTarget, name: file.name, data_base64: b64 });
+      applyBackendResponse(res, false);
+    } catch (err) {
+      showToast('Lỗi đọc file: ' + err, 'err');
+    }
+  });
+
+  async function clearOptFile(kind) {
+    try {
+      const res = await invokeCmd('clear_opt_file', { kind });
+      applyBackendResponse(res, false);
+    } catch (err) {
+      showToast(String(err), 'err');
+    }
+  }
+
+  async function callProcessCC() {
+    try {
+      const res = await invokeCmd('process_cc');
+      applyBackendResponse(res, true);
+    } catch (err) {
+      showToast(String(err), 'err');
+    }
+  }
+
+  async function callProcessXP() {
+    try {
+      exitDeleteMode();
+      const res = await invokeCmd('process_xp');
+      applyBackendResponse(res, false);
+    } catch (err) {
+      showToast(String(err), 'err');
+    }
+  }
+
+  async function changeTimetable(idx, val) {
+    try {
+      const res = await invokeCmd('change_tt', { idx, val });
+      applyBackendResponse(res, false);
+    } catch (err) {
+      showToast(String(err), 'err');
+    }
+  }
+
+  function applyBackendResponse(res, resetFilter) {
+    if (res.state) {
+      const curTheme = appState.theme;
+      appState = res.state;
+      appState.theme = curTheme;
+
+      document.getElementById('lblFile1').textContent = appState.file1 || 'Chưa chọn file';
+      document.getElementById('lblFile2').textContent = appState.file2 || 'Chưa chọn file';
+      document.getElementById('lblFileXp').textContent = appState.file_xp || 'Chưa chọn file';
+      document.getElementById('lblFileNb').textContent = appState.file_nb || 'Tùy chọn';
+      document.getElementById('lblFilePn').textContent = appState.file_pn || 'Tùy chọn';
+      document.getElementById('btnClearNb').style.display = appState.file_nb ? 'inline-flex' : 'none';
+      document.getElementById('btnClearPn').style.display = appState.file_pn ? 'inline-flex' : 'none';
+
+      const selTT = document.getElementById('selTimetable');
+      const prevTT = selTT.value;
+      selTT.innerHTML = `<option value="Tất cả">Tất cả</option>` +
+        appState.all_timetables.map(t => `<option value="${escHtml(t)}">${escHtml(t)}</option>`).join('');
+      if (!resetFilter && appState.all_timetables.includes(prevTT)) selTT.value = prevTT;
+
+      if (resetFilter) {
+        selectedDates.clear();
+        selectedMsnvs.clear();
+        document.getElementById('selWorkTime').value = 'Tất cả';
+      }
+
+      renderMultiList('date');
+      renderMultiList('msnv');
+      updateMultiBtnLabel('date');
+      updateMultiBtnLabel('msnv');
+      renderTableCC();
+      renderTableXP();
+    }
+    if (res.message) {
+      showToast(res.message, res.is_error ? 'err' : 'ok');
+    }
+  }
+
+  // --- BỘ LỌC TAB 1 ---
+  function renderMultiList(kind) {
+    const isDate = kind === 'date';
+    const allItems = isDate ? appState.all_dates : appState.all_msnvs;
+    const selSet = isDate ? selectedDates : selectedMsnvs;
+    const kw = document.getElementById(isDate ? 'searchDate' : 'searchMsnv').value.toLowerCase();
+    const container = document.getElementById(isDate ? 'listDate' : 'listMsnv');
+    container.innerHTML = allItems
+      .filter(it => !kw || it.toLowerCase().includes(kw))
+      .map(it => `<label class="multi-item"><input type="checkbox" ${selSet.has(it)?'checked':''} onchange="toggleMultiItem('${kind}','${escHtml(it)}',this.checked)"> <span>${escHtml(it)}</span></label>`).join('');
+  }
+
+  function toggleMultiItem(kind, val, checked) {
+    const set = kind === 'date' ? selectedDates : selectedMsnvs;
+    if (checked) set.add(val); else set.delete(val);
+    updateMultiBtnLabel(kind);
+    renderTableCC();
+  }
+
+  function selectAllMulti(kind, selectAll) {
+    const isDate = kind === 'date';
+    const allItems = isDate ? appState.all_dates : appState.all_msnvs;
+    const set = isDate ? selectedDates : selectedMsnvs;
+    const kw = document.getElementById(isDate ? 'searchDate' : 'searchMsnv').value.toLowerCase();
+    if (!selectAll) set.clear();
+    else allItems.filter(it => !kw || it.toLowerCase().includes(kw)).forEach(it => set.add(it));
+    renderMultiList(kind);
+    updateMultiBtnLabel(kind);
+    renderTableCC();
+  }
+
+  function updateMultiBtnLabel(kind) {
+    const isDate = kind === 'date';
+    const allItems = isDate ? appState.all_dates : appState.all_msnvs;
+    const set = isDate ? selectedDates : selectedMsnvs;
+    const btn = document.getElementById(isDate ? 'btnFilterDate' : 'btnFilterMsnv');
+    if (set.size === 0 || set.size === allItems.length) btn.textContent = 'Tất cả ▾';
+    else if (set.size === 1) btn.textContent = `${Array.from(set)[0]} ▾`;
+    else btn.textContent = `${set.size} mục ▾`;
+  }
+
+  function resetFiltersCC() {
+    selectedDates.clear();
+    selectedMsnvs.clear();
+    document.getElementById('selTimetable').value = 'Tất cả';
+    document.getElementById('selWorkTime').value = 'Tất cả';
+    renderMultiList('date');
+    renderMultiList('msnv');
+    updateMultiBtnLabel('date');
+    updateMultiBtnLabel('msnv');
+    renderTableCC();
+  }
+
+  function renderTableCC() {
+    const ttFilter = document.getElementById('selTimetable').value;
+    const wtFilter = document.getElementById('selWorkTime').value;
+    const shiftOpts = appState.all_timetables.length > 0
+      ? appState.all_timetables
+      : ["HC 7H30-17H00", "CA SANG MOI", "CA TRUA MOI", "CA DEM MOI"];
+
+    let count = 0;
+    const html = [];
+    appState.cc_rows.forEach((row, idx) => {
+      if (selectedDates.size > 0 && !selectedDates.has(row["Date"])) return;
+      if (selectedMsnvs.size > 0 && !selectedMsnvs.has(row["MSNV"])) return;
+      if (ttFilter !== "Tất cả" && row["Timetable"] !== ttFilter) return;
+      if (wtFilter === "Bù vân tay" && row["Work Time"] !== "Bù vân tay") return;
+
+      count++;
+      const isBvtRow = ["Work Time", "Clock In", "Clock Out", "Kết Quả Công"].some(k => row[k] === "Bù vân tay");
+      const tds = CC_COLS.map(col => {
+        const val = row[col] || "";
+        if (col === "Timetable") {
+          const opts = shiftOpts.map(o => `<option value="${escHtml(o)}" ${o === val ? 'selected' : ''}>${escHtml(o)}</option>`).join('');
+          return `<td><select class="cell-select" onchange="changeTimetable(${idx}, this.value)">${opts}</select></td>`;
+        }
+        const isCellHl = val !== "" && (col === "Late" || col === "Early" || (col === "Nghỉ phép" && val !== "PLP"));
+        return `<td ${isCellHl ? 'class="cell-hl"' : ''}>${escHtml(val)}</td>`;
+      }).join('');
+      html.push(`<tr ${isBvtRow ? 'class="row-bvt"' : ''}>${tds}</tr>`);
+    });
+
+    document.getElementById('tbodyCC').innerHTML = html.join('');
+    document.getElementById('lblCountCC').textContent = `${count} / ${appState.cc_rows.length} dòng`;
+  }
+
+  // --- BẢNG TAB 2: XIN PHÉP + DROPDOWN 9 LOẠI HÌNH + CHẾ ĐỘ XÓA DÒNG ---
+  function renderHeaderXP() {
+    const delTh = deleteMode ? `<th style="width:46px;">Chọn</th>` : '';
+    document.getElementById('theadXP').innerHTML = delTh + XP_COLS.map(c => `<th>${c}</th>`).join('');
+  }
+
+  function renderTableXP() {
+    renderHeaderXP();
+    const html = appState.xp_rows.map(row => {
+      const isExtra = row["IsExtra"] === "True";
+      const menuKind = row["MenuKind"] || "";
+      const baseIdx = parseInt(row["BaseIdx"] || "0", 10);
+      const rowPart = parseInt(row["RowPart"] || "0", 10);
+      const delKey = `${baseIdx}:${rowPart}`;
+      const trClass = (isExtra || menuKind === "UPPER" || menuKind === "PARTIAL") ? 'class="row-xp-hl"' : '';
+
+      const delTd = deleteMode
+        ? `<td><input type="checkbox" class="chk-del" ${selectedDeleteKeys.has(delKey) ? 'checked' : ''} onchange="toggleDeleteRow('${delKey}', this.checked)"></td>`
+        : '';
+
+      const tds = XP_COLS.map(col => {
+        const val = row[col] || "";
+        if (col === "*Loại hình xin phép") {
+          const curVal = row["CurVal"] || `MANUAL:${val}`;
+          let autoOpts = "";
+          for (let k = 1; k <= 4; k++) {
+            const ov = row[`Opt${k}Val`];
+            const ol = row[`Opt${k}Label`];
+            if (ov !== undefined && ol) {
+              autoOpts += `<option value="${escHtml(ov)}" ${curVal === ov ? 'selected' : ''}>${escHtml(ol)}</option>`;
+            }
+          }
+
+          let manualOpts = ALL_LEAVE_TYPES.map(lt => {
+            const mv = `MANUAL:${lt}`;
+            return `<option value="${escHtml(mv)}" ${curVal === mv ? 'selected' : ''}>${escHtml(lt)}</option>`;
+          }).join('');
+
+          let fullOpts = "";
+          if (autoOpts) {
+            fullOpts = `<optgroup label="── Phương án tự động ──">${autoOpts}</optgroup><optgroup label="── Chọn trực tiếp loại hình ──">${manualOpts}</optgroup>`;
+          } else {
+            // Nếu giá trị hiện tại là lỗi dữ liệu không thuộc 9 loại hình
+            const extraCurr = !ALL_LEAVE_TYPES.includes(val)
+              ? `<option value="${escHtml(curVal)}" selected>${escHtml(val)}</option>`
+              : '';
+            fullOpts = extraCurr + manualOpts;
+          }
+
+          const pIdx = parseInt(row["LinkedPartialIdx"] || "0", 10);
+          const uIdx = (row["LinkedUpperIdx"] !== undefined && row["LinkedUpperIdx"] !== "") ? parseInt(row["LinkedUpperIdx"], 10) : -1;
+          const canSwap = row["CanSwap"] === "True";
+
+          return `<td><select class="cell-select" onchange="onXpDropdownChange('${menuKind}', ${baseIdx}, ${rowPart}, ${pIdx}, ${uIdx}, ${canSwap}, this.value)">${fullOpts}</select></td>`;
+        }
+        return `<td>${escHtml(val)}</td>`;
+      }).join('');
+
+      return `<tr ${trClass}>${delTd}${tds}</tr>`;
+    });
+
+    document.getElementById('tbodyXP').innerHTML = html.join('');
+    document.getElementById('lblCountXP').textContent = `Tổng: ${appState.xp_rows.length} dòng`;
+  }
+
+  async function onXpDropdownChange(menuKind, baseIdx, rowPart, partialIdx, upperIdx, canSwap, selectedVal) {
+    try {
+      let res;
+      if (selectedVal.startsWith("MANUAL:")) {
+        res = await invokeCmd('xp_set_manual', {
+          base_idx: baseIdx,
+          part: rowPart,
+          loai: selectedVal.slice(7)
+        });
+      } else if (menuKind === "CHOICE") {
+        res = await invokeCmd('xp_set_choice', { base_idx: baseIdx, choice: parseInt(selectedVal, 10) });
+      } else if (menuKind === "UPPER") {
+        res = await invokeCmd('xp_upper_choice', {
+          upper_idx: baseIdx,
+          partial_idx: partialIdx,
+          choice: parseInt(selectedVal, 10),
+          can_swap: canSwap
+        });
+      } else if (menuKind === "PARTIAL") {
+        res = await invokeCmd('xp_partial_mode', {
+          partial_idx: baseIdx,
+          upper_idx: upperIdx >= 0 ? upperIdx : null,
+          mode: parseInt(selectedVal, 10)
+        });
+      }
+      if (res) applyBackendResponse(res, false);
+    } catch (err) {
+      showToast(String(err), 'err');
+    }
+  }
+
+  // --- CHẾ ĐỘ XÓA DÒNG TRÊN GIAO DIỆN XIN PHÉP ---
+  function enterDeleteMode() {
+    if (appState.xp_rows.length === 0) {
+      showToast('Chưa có dữ liệu xin phép để xóa!', 'err');
+      return;
+    }
+    deleteMode = true;
+    selectedDeleteKeys.clear();
+    document.getElementById('btnToggleDel').style.display = 'none';
+    document.getElementById('btnConfirmDel').style.display = 'inline-flex';
+    document.getElementById('btnCancelDel').style.display = 'inline-flex';
+    updateConfirmDelBtn();
+    renderTableXP();
+  }
+
+  function exitDeleteMode() {
+    deleteMode = false;
+    selectedDeleteKeys.clear();
+    document.getElementById('btnToggleDel').style.display = 'inline-flex';
+    document.getElementById('btnConfirmDel').style.display = 'none';
+    document.getElementById('btnCancelDel').style.display = 'none';
+    renderTableXP();
+  }
+
+  function toggleDeleteRow(key, checked) {
+    if (checked) selectedDeleteKeys.add(key);
+    else selectedDeleteKeys.delete(key);
+    updateConfirmDelBtn();
+  }
+
+  function updateConfirmDelBtn() {
+    document.getElementById('btnConfirmDel').textContent = `✔ Xác nhận xóa (${selectedDeleteKeys.size})`;
+  }
+
+  async function confirmDeleteRows() {
+    if (selectedDeleteKeys.size === 0) {
+      showToast('Vui lòng tích chọn ít nhất 1 dòng cần xóa!', 'err');
+      return;
+    }
+    const targets = Array.from(selectedDeleteKeys).map(k => {
+      const [b, p] = k.split(':');
+      return { base_idx: parseInt(b, 10), part: parseInt(p, 10) };
+    });
+    try {
+      const res = await invokeCmd('xp_delete_rows', { targets });
+      exitDeleteMode();
+      applyBackendResponse(res, false);
+    } catch (err) {
+      showToast(String(err), 'err');
+    }
+  }
+
+  // --- XUẤT EXCEL TRÊN ANDROID 16 (MEDIASTORE) & DESKTOP ---
+  async function exportExcel(kind) {
+    try {
+      const payload = await invokeCmd('export_excel', { kind });
+      if (window.AndroidBridge && window.AndroidBridge.saveExcel) {
+        const status = window.AndroidBridge.saveExcel(payload.filename, payload.data_base64);
+        if (status.startsWith("OK:")) showToast(status.slice(4), 'ok');
+        else showToast(status, 'err');
+      } else {
+        // Fallback nếu chạy thử trên máy tính
+        const bin = atob(payload.data_base64);
+        const arr = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        const blob = new Blob([arr], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = payload.filename;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast(`Đã tải xuống ${payload.filename}`, 'ok');
+      }
+    } catch (err) {
+      showToast(String(err), 'err');
+    }
+  }
+
+  // --- CÀI ĐẶT GIỜ CA ---
+  function openSettingsModal() {
+    const s = appState.shift_settings;
+    document.getElementById('inpHcS').value = s.hc_start;
+    document.getElementById('inpHcE').value = s.hc_end;
+    document.getElementById('inpCa1S').value = s.ca1_start;
+    document.getElementById('inpCa1E').value = s.ca1_end;
+    document.getElementById('inpCa2S').value = s.ca2_start;
+    document.getElementById('inpCa2E').value = s.ca2_end;
+    document.getElementById('inpCa3S').value = s.ca3_start;
+    document.getElementById('inpCa3E').value = s.ca3_end;
+    document.getElementById('settingsModal').classList.add('open');
+  }
+
+  function closeSettingsModal() {
+    document.getElementById('settingsModal').classList.remove('open');
+  }
+
+  function loadOldShiftPreset() {
+    document.getElementById('inpHcS').value = "07:30";
+    document.getElementById('inpHcE').value = "17:00";
+    document.getElementById('inpCa1S').value = "06:00";
+    document.getElementById('inpCa1E').value = "14:00";
+    document.getElementById('inpCa2S').value = "14:00";
+    document.getElementById('inpCa2E').value = "22:00";
+    document.getElementById('inpCa3S').value = "22:00";
+    document.getElementById('inpCa3E').value = "06:00";
+  }
+
+  async function applySettings() {
+    try {
+      const res = await invokeCmd('save_settings', {
+        settings: {
+          hc_start: document.getElementById('inpHcS').value,
+          hc_end: document.getElementById('inpHcE').value,
+          ca1_start: document.getElementById('inpCa1S').value,
+          ca1_end: document.getElementById('inpCa1E').value,
+          ca2_start: document.getElementById('inpCa2S').value,
+          ca2_end: document.getElementById('inpCa2E').value,
+          ca3_start: document.getElementById('inpCa3S').value,
+          ca3_end: document.getElementById('inpCa3E').value
+        }
+      });
+      closeSettingsModal();
+      applyBackendResponse(res, false);
+    } catch (err) {
+      showToast(String(err), 'err');
+    }
+  }
+</script>
+</body>
+</html>
