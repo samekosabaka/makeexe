@@ -50,13 +50,17 @@ jobs:
         run: |
           export RUSTFLAGS="-C link-arg=-Wl,-z,max-page-size=16384"
           cargo tauri android init --ci
+          if [ ! -f src-tauri/icons/32x32.png ]; then
+            python3 -c 'import zlib, struct; w=h=512; raw=b"".join(b"\x00"+bytes([37,99,235,255])*w for _ in range(h)); ch=lambda t,d: struct.pack(">I",len(d))+t+d+struct.pack(">I",zlib.crc32(t+d)&0xffffffff); open("app-icon.png","wb").write(b"\x89PNG\r\n\x1a\n"+ch(b"IHDR",struct.pack(">IIBBBBB",w,h,8,6,0,0,0))+ch(b"IDAT",zlib.compress(raw))+ch(b"IEND",b""))'
+            cargo tauri icon app-icon.png
+          fi
           cargo tauri android build --apk --target aarch64
 
       - name: Sign APK for Android 16
         run: |
           mkdir -p publish
           BUILD_TOOLS="$ANDROID_HOME/build-tools/36.0.0"
-          RAW_APK=$(find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" | head -n 1)
+          RAW_APK=$(find src-tauri/gen/android -name "*.apk" | head -n 1)
           echo "Found APK: $RAW_APK"
 
           keytool -genkeypair -v -keystore release.jks -storepass timekeep123 -keypass timekeep123 \
