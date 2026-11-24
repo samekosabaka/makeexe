@@ -1082,7 +1082,6 @@ impl TimekeepApp {
                 "MenuKind" => "", "BaseIdx" => idx
             );
 
-            // KHÔNG NẠP FILE NGHỈ BÙ (CHỈ DÙNG FILE PHÉP NĂM)
             if !has_nb {
                 if let Some(req_m) = req_opt {
                     if is_four_or_eight && has_pn {
@@ -1118,7 +1117,6 @@ impl TimekeepApp {
                 let req_h = req_m as f64 / 60.0;
                 let req_days = req_m as f64 / 480.0;
 
-                // 1. Dòng trên có liên kết với dòng thiếu giờ bên dưới
                 if nat.is_upper_nb {
                     row.insert("LinkedPartialIdx".into(), nat.linked_partial_idx.unwrap_or(idx).to_string());
                     row.insert("CanSwap".into(), if nat.can_swap_upper { "True" } else { "False" }.into());
@@ -1184,7 +1182,6 @@ impl TimekeepApp {
                     continue;
                 }
 
-                // 2. Dòng thiếu giờ nghỉ bù (Partial)
                 if nat.is_partial {
                     split_cnt += 1;
                     let th1_loai = if is_four_or_eight {
@@ -1277,7 +1274,6 @@ impl TimekeepApp {
                     continue;
                 }
 
-                // 3. Các dòng bình thường đủ Nghỉ bù hoặc Phép năm
                 if avail_m >= req_m {
                     if is_four_or_eight && can_use_pn {
                         let (opts, eff_choice) = if has_pn {
@@ -1533,7 +1529,6 @@ impl TimekeepApp {
             }
         }
 
-        // Gắn Data Validation Dropdown gốc (chạy đa nền tảng Android & Windows, không cần PowerShell)
         let last_r = self.data_xp_result.len() as u32;
         if last_r >= 1 {
             let dv = DataValidation::new()
@@ -1543,7 +1538,6 @@ impl TimekeepApp {
         }
         ws.autofit();
 
-        // Sheet phụ chứa 9 loại hình xin phép chuẩn
         let ws_ref = wb.add_worksheet();
         let _ = ws_ref.set_name("请假项目_XIN PHÉP");
         for (i, &lt) in LEAVE_TYPES.iter().enumerate() {
@@ -1618,15 +1612,15 @@ impl TimekeepApp {
 }
 
 // =========================================================================
-// --- TAURI V2 COMMANDS (GỌI TỪ FRONTEND INDEX.HTML) ---
+// --- TAURI V2 COMMANDS (GIỮ NGUYÊN SNAKE_CASE KHỚP VỚI FRONTEND) ---
 // =========================================================================
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 fn get_state(state: State<'_, Mutex<TimekeepApp>>) -> Result<UiPayload, String> {
     let app = state.lock().map_err(|e| e.to_string())?;
     Ok(app.to_payload(None, false))
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 fn upload_file(
     state: State<'_, Mutex<TimekeepApp>>,
     target: String,
@@ -1647,7 +1641,7 @@ fn upload_file(
     Ok(app.to_payload(None, false))
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 fn clear_file(state: State<'_, Mutex<TimekeepApp>>, target: String) -> Result<UiPayload, String> {
     let mut app = state.lock().map_err(|e| e.to_string())?;
     match target.as_str() {
@@ -1667,7 +1661,7 @@ fn clear_file(state: State<'_, Mutex<TimekeepApp>>, target: String) -> Result<Ui
     Ok(app.to_payload(None, false))
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 fn save_settings(state: State<'_, Mutex<TimekeepApp>>, settings: ShiftConfig) -> Result<UiPayload, String> {
     let pairs = [
         (&settings.hc_start, &settings.hc_end),
@@ -1692,14 +1686,14 @@ fn save_settings(state: State<'_, Mutex<TimekeepApp>>, settings: ShiftConfig) ->
     Ok(app.to_payload(Some("Đã cập nhật cấu hình giờ ca!".into()), false))
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 fn process_cc(state: State<'_, Mutex<TimekeepApp>>) -> Result<UiPayload, String> {
     let mut app = state.lock().map_err(|e| e.to_string())?;
     let msg = app.process_cham_cong()?;
     Ok(app.to_payload(Some(msg), true))
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 fn change_tt(state: State<'_, Mutex<TimekeepApp>>, idx: usize, val: String) -> Result<UiPayload, String> {
     let mut app = state.lock().map_err(|e| e.to_string())?;
     if idx < app.data_result.len() {
@@ -1710,14 +1704,14 @@ fn change_tt(state: State<'_, Mutex<TimekeepApp>>, idx: usize, val: String) -> R
     Ok(app.to_payload(None, false))
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 fn process_xp(state: State<'_, Mutex<TimekeepApp>>) -> Result<UiPayload, String> {
     let mut app = state.lock().map_err(|e| e.to_string())?;
     let msg = app.process_xin_phep()?;
     Ok(app.to_payload(Some(msg), false))
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 fn xp_set_choice(state: State<'_, Mutex<TimekeepApp>>, base_idx: usize, choice: u8) -> Result<UiPayload, String> {
     let mut app = state.lock().map_err(|e| e.to_string())?;
     if let Some(it) = app.base_xp_items.get_mut(base_idx) {
@@ -1728,7 +1722,7 @@ fn xp_set_choice(state: State<'_, Mutex<TimekeepApp>>, base_idx: usize, choice: 
     Ok(app.to_payload(None, false))
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 fn xp_upper_choice(
     state: State<'_, Mutex<TimekeepApp>>,
     upper_idx: usize,
@@ -1752,7 +1746,7 @@ fn xp_upper_choice(
     Ok(app.to_payload(None, false))
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 fn xp_partial_mode(
     state: State<'_, Mutex<TimekeepApp>>,
     partial_idx: usize,
@@ -1777,7 +1771,7 @@ fn xp_partial_mode(
     Ok(app.to_payload(None, false))
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 fn export_excel(state: State<'_, Mutex<TimekeepApp>>, kind: String) -> Result<ExportPayload, String> {
     let mut app = state.lock().map_err(|e| e.to_string())?;
     match kind.as_str() {
@@ -1874,7 +1868,6 @@ fn read_bytes_to_dicts(raw: &[u8]) -> Result<Vec<HashMap<String, String>>, Strin
         return Ok(Vec::new());
     }
 
-    // 1. Raw BIFF2/3/4/5 của máy chấm công ZKTime (như file 14.xls)
     if raw.len() > 8 && raw[0] == 0x09 && matches!(raw[1], 0x08 | 0x00 | 0x02 | 0x04) {
         let rows = parse_raw_biff_stream(raw);
         if rows.len() > 1 {
@@ -1882,7 +1875,6 @@ fn read_bytes_to_dicts(raw: &[u8]) -> Result<Vec<HashMap<String, String>>, Strin
         }
     }
 
-    // 2. Excel chuẩn .xlsx (ZIP) đọc trực tiếp từ bộ nhớ RAM (không phụ thuộc đường dẫn Android)
     if raw.len() > 4 && &raw[0..4] == b"PK\x03\x04" {
         if let Ok(mut wb) = Xlsx::new(Cursor::new(raw)) {
             let names = wb.sheet_names().to_vec();
@@ -1896,7 +1888,6 @@ fn read_bytes_to_dicts(raw: &[u8]) -> Result<Vec<HashMap<String, String>>, Strin
         }
     }
 
-    // 3. Excel chuẩn .xls (OLE2) đọc trực tiếp từ bộ nhớ RAM
     if raw.len() > 4 && &raw[0..4] == b"\xD0\xCF\x11\xE0" {
         if let Ok(mut wb) = Xls::new(Cursor::new(raw)) {
             let names = wb.sheet_names().to_vec();
@@ -1910,7 +1901,6 @@ fn read_bytes_to_dicts(raw: &[u8]) -> Result<Vec<HashMap<String, String>>, Strin
         }
     }
 
-    // 4. HTML Table / CSV / TSV
     let decoded = decode_zkt_bytes(raw);
     if decoded.trim().is_empty() {
         return Err("Không thể giải mã nội dung file.".into());
